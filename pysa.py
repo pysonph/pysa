@@ -220,14 +220,17 @@ def process_smile_one_order(user_id, zone_id, product_id, currency_name):
     scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
     scraper.cookies.update(get_login_cookies())
 
+    # 🌟 Currency (Region) အပေါ်မူတည်ပြီး checkrole API လင့်ခ်များကို ခွဲခြားသတ်မှတ်ခြင်း
     if currency_name == 'PH':
         main_url = 'https://www.smile.one/ph/merchant/mobilelegends'
+        checkrole_url = 'https://www.smile.one/ph/merchant/mobilelegends/checkrole'
         query_url = 'https://www.smile.one/ph/merchant/mobilelegends/query'
         pay_url = 'https://www.smile.one/ph/merchant/mobilelegends/pay'
         order_api_url = 'https://www.smile.one/ph/customer/activationcode/codelist'
         balance_url = 'https://www.smile.one/ph/customer/order'
     else:
         main_url = 'https://www.smile.one/merchant/mobilelegends'
+        checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
         query_url = 'https://www.smile.one/merchant/mobilelegends/query'
         pay_url = 'https://www.smile.one/merchant/mobilelegends/pay'
         order_api_url = 'https://www.smile.one/customer/activationcode/codelist'
@@ -257,6 +260,25 @@ def process_smile_one_order(user_id, zone_id, product_id, currency_name):
 
         if not csrf_token: return {"status": "error", "message": "CSRF Token ရှာမတွေ့ပါ။ /setcookie ဖြင့် Cookie အသစ်ထည့်ပါ။"}
 
+        # 🌟 ငွေမချေခင် ID အရင်မှန်မမှန် Check Role ဖြင့် စစ်ဆေးခြင်း
+        check_data = {
+            'user_id': user_id, 
+            'zone_id': zone_id, 
+            '_csrf': csrf_token
+        }
+        
+        role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
+        try:
+            role_result = role_response.json()
+            ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
+            if not ig_name or str(ig_name).strip() == "":
+                real_error = role_result.get('msg') or role_result.get('message') or "အကောင့်ရှာမတွေ့ပါ။"
+                return {"status": "error", "message": f"❌ အကောင့် မှားယွင်းနေပါသည်: {real_error}"}
+        except Exception:
+            return {"status": "error", "message": "⚠️ Check Role API Error: အကောင့်စစ်ဆေး၍မရပါ။"}
+        # -----------------------------------------------------------
+
+        # အကောင့်မှန်ကန်မှသာ Flow ID ယူပြီး ဆက်လုပ်မည်
         query_data = {
             'user_id': user_id, 'zone_id': zone_id, 'pid': product_id,
             'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token
@@ -272,20 +294,16 @@ def process_smile_one_order(user_id, zone_id, product_id, currency_name):
             return {"status": "error", "message": f"Query API Error (Status: {query_response.status_code})"}
             
         flowid = query_result.get('flowid') or query_result.get('data', {}).get('flowid')
-        ig_name = query_result.get('username') or query_result.get('data', {}).get('username', 'Unknown')
         
         if not flowid:
+            raw_debug = json.dumps(query_result, ensure_ascii=False)
             real_error = query_result.get('msg') or query_result.get('message') or ""
+            
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
-                print("⚠️ Cookie သက်တမ်းကုန်နေပါသည်။ Auto-Login ကို စတင်နေပါသည်...")
-                success = auto_login_and_get_cookie()
-                
-                if success:
-                    return {"status": "error", "message": "⚠️ Session အသစ်ပြန်ယူပြီးပါပြီ။ ကျေးဇူးပြု၍ မိနစ်ဝက်ခန့်စောင့်ပြီး Command ကို ထပ်မံရိုက်ထည့်ပါ။"}
-                else:
-                    return {"status": "error", "message": "❌ Auto-Login မအောင်မြင်ပါ။ /setcookie ဖြင့် လူကိုယ်တိုင် ပြန်ထည့်ပေးပါ။ (Facebook Account Lock ကျနေခြင်း ဖြစ်နိုင်ပါသည်)"}
+                return {"status": "error", "message": "⚠️ Cookie သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ `/setcookie` ဖြင့် အသစ်ထည့်ပါ။"}
             else:
-                return {"status": "error", "message": "❌ **အကောင့် မှားယွင်းနေပါသည်:**\nAccount is ban server."}
+                err_text = real_error if real_error else "အကောင့်ရှာမတွေ့ပါ သို့မဟုတ် ငြင်းပယ်ခံရသည်။"
+                return {"status": "error", "message": f"Smile.one ၏ တုံ့ပြန်ချက်: {err_text}\n\n*(Debug: {raw_debug})*"}
 
         current_balances = get_smile_balance(scraper, headers, balance_url)
 
@@ -297,7 +315,7 @@ def process_smile_one_order(user_id, zone_id, product_id, currency_name):
         pay_response = scraper.post(pay_url, data=pay_data, headers=headers)
         pay_text = pay_response.text.lower()
         
-        if "saldo insuficiente" in pay_text:
+        if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
             return {"status": "error", "message": "သင့်အကောင့်တွင် ငွေ (Balance) မလုံလောက်ပါ။"}
         
         time.sleep(2) 
@@ -338,8 +356,9 @@ def process_smile_one_order(user_id, zone_id, product_id, currency_name):
             err_msg = "ငွေချေမှု မအောင်မြင်ပါ။"
             try:
                 err_json = pay_response.json()
+                raw_pay_debug = json.dumps(err_json, ensure_ascii=False)
                 if 'msg' in err_json: 
-                    err_msg = f"ငွေချေမှု မအောင်မြင်ပါ။ ({err_json['msg']})"
+                    err_msg = f"ငွေချေမှု မအောင်မြင်ပါ။ ({err_json['msg']})\n\n*(Debug: {raw_pay_debug})*"
             except: pass
             return {"status": "error", "message": err_msg}
 
@@ -369,7 +388,7 @@ def is_authorized(message):
 def keep_cookie_alive():
     while True:
         try:
-            time.sleep(5 * 60) # ၅ မိနစ် တစ်ခါ run မည်
+            time.sleep(10 * 60) # ၅ မိနစ် တစ်ခါ run မည်
             scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
             scraper.cookies.update(get_login_cookies())
             

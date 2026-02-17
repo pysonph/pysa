@@ -558,6 +558,7 @@ def handle_check_role(message):
         bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ System Error: {str(e)}")
 
 # ==========================================
+# ==========================================
 # 8. 💎 V-WALLET ဖြင့် ဝယ်ယူခြင်း (COMMAND HANDLER)
 # ==========================================
 @bot.message_handler(func=lambda message: re.match(r"(?i)^(br|bro|ph|pho)\s+\d+", message.text.strip()))
@@ -565,138 +566,100 @@ def handle_direct_buy(message):
     if not is_authorized(message):
         return bot.reply_to(message, f"❌ သင့်တွင် ဤ Bot ကို အသုံးပြုခွင့် မရှိပါ။", parse_mode="Markdown")
 
-    tg_id = str(message.from_user.id)
-    lines = message.text.strip().split('\n')
-    telegram_user = message.from_user.username
-    username_display = f"@{telegram_user}" if telegram_user else tg_id
-    
-    with transaction_lock:
-        for line in lines:
-            line = line.strip()
-            if not line: continue 
-                
-            match = re.search(r"(?i)^(br|bro|ph|pho)\s*(\d+)\s*\(\s*(\d+)\s*\)\s*([a-zA-Z0-9]+)", line)
-            if not match:
-                bot.reply_to(message, f"❌ Format မှားယွင်းနေပါသည်: `{line}`\n(ဥပမာ - br 12345678 (1234) wp)", parse_mode="Markdown")
-                continue
-                
-            cmd_px, game_id, zone_id, item_input = match.group(1).lower(), match.group(2), match.group(3), match.group(4).lower()
-            
-            currency_name = 'PH' if cmd_px in ['ph', 'pho'] else 'BR'
-            active_pkgs = PH_PACKAGES if currency_name == 'PH' else BR_PACKAGES
-            v_bal_key = 'ph_balance' if currency_name == 'PH' else 'br_balance'
-            
-            if item_input not in active_pkgs:
-                bot.reply_to(message, f"❌ '{item_input}' အတွက် Package မရှိပါ။")
-                continue
-                
-            items_to_buy = active_pkgs[item_input]
-            total_required_price = sum(item['price'] for item in items_to_buy)
-            
-            user_wallet = db.get_reseller(tg_id)
-            user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
-            
-            if user_v_bal < total_required_price:
-                bot.reply_to(message, f"❌ သင့် V-Wallet တွင် ငွေမလုံလောက်ပါ။\nလိုအပ်သောငွေ: {total_required_price} {currency_name}\nသင့်လက်ကျန်: {user_v_bal} {currency_name}")
-                continue
-            
-            loading_msg = bot.reply_to(message, f"📊 `{cmd_px} {game_id} ({zone_id}) {item_input}` အတွက် Order တင်နေပါသည်...", parse_mode="Markdown")
-            
-            success_count = 0
-            fail_count = 0
-            total_spent = 0.0
-            order_ids_str = ""
-            ig_name = "Unknown"
-            error_msg = ""
-            first_order = True
-            
-            for item in items_to_buy:
-                result = process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
-                
-                if result['status'] == 'success':
-                    if first_order:
-                        ig_name = result['ig_name']
-                        first_order = False
+    try: # <--- ဤနေရာတွင် try: အသစ် ပြန်ထည့်ထားပါသည်
+        tg_id = str(message.from_user.id)
+        lines = message.text.strip().split('\n')
+        telegram_user = message.from_user.username
+        username_display = f"@{telegram_user}" if telegram_user else tg_id
+        
+        with transaction_lock:
+            for line in lines:
+                line = line.strip()
+                if not line: continue 
                     
-                    success_count += 1
-                    total_spent += item['price']
-                    order_ids_str += f"Order ID:\n{result['order_id']}\n"
-                    time.sleep(random.randint(5, 10)) 
-                else:
-                    fail_count += 1
-                    error_msg = result['message']
-                    break 
-            
-            if success_count > 0:
-                now = datetime.datetime.now(MMT)
-                date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
+                match = re.search(r"(?i)^(br|bro|ph|pho)\s*(\d+)\s*\(\s*(\d+)\s*\)\s*([a-zA-Z0-9]+)", line)
+                if not match:
+                    bot.reply_to(message, f"❌ Format မှားယွင်းနေပါသည်: `{line}`\n(ဥပမာ - br 12345678 (1234) wp)", parse_mode="Markdown")
+                    continue
+                    
+                cmd_px, game_id, zone_id, item_input = match.group(1).lower(), match.group(2), match.group(3), match.group(4).lower()
                 
-                # Database မှ Balance ကို ပြန်နုတ်မည်
-                if currency_name == 'BR':
-                    db.update_balance(tg_id, br_amount=-total_spent)
-                else:
-                    db.update_balance(tg_id, ph_amount=-total_spent)
+                currency_name = 'PH' if cmd_px in ['ph', 'pho'] else 'BR'
+                active_pkgs = PH_PACKAGES if currency_name == 'PH' else BR_PACKAGES
+                v_bal_key = 'ph_balance' if currency_name == 'PH' else 'br_balance'
                 
-                # အသစ်ကျန်သော Balance ကို ပြန်ယူမည်
-                new_wallet = db.get_reseller(tg_id)
-                new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
+                if item_input not in active_pkgs:
+                    bot.reply_to(message, f"❌ '{item_input}' အတွက် Package မရှိပါ။")
+                    continue
+                    
+                items_to_buy = active_pkgs[item_input]
+                total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                report = f"{cmd_px} {game_id} ({zone_id}) {item_input}\n"
-                report += "=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
-                report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ SUCCESS\n"
-                report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
-                report += f"ɪɢ ɴᴀᴍᴇ: {ig_name}\n"
-                report += order_ids_str
-                report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
-                report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
-                report += f"ᴅᴀᴛᴇ: {date_str}\n"
-                report += f"ᴜsᴇʀɴᴀᴍᴇ: {username_display}\n"
-                report += f"ᴛᴏᴛᴀʟ sᴘᴇɴᴛ: ${total_spent:.2f}\n"
-                report += f"💼 V-Wallet (Before): ${user_v_bal:.2f}\n"
-                report += f"💼 V-Wallet (After): ${new_v_bal:.2f}\n\n"
-                report += f"sᴜᴄᴄᴇss {success_count} / Fail {fail_count}" 
+                user_wallet = db.get_reseller(tg_id)
+                user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
+                
+                if user_v_bal < total_required_price:
+                    bot.reply_to(message, f"❌ သင့် V-Wallet တွင် ငွေမလုံလောက်ပါ။\nလိုအပ်သောငွေ: {total_required_price} {currency_name}\nသင့်လက်ကျန်: {user_v_bal} {currency_name}")
+                    continue
+                
+                loading_msg = bot.reply_to(message, f"📊 `{cmd_px} {game_id} ({zone_id}) {item_input}` အတွက် Order တင်နေပါသည်...", parse_mode="Markdown")
+                
+                success_count = 0
+                fail_count = 0
+                total_spent = 0.0
+                order_ids_str = ""
+                ig_name = "Unknown"
+                error_msg = ""
+                first_order = True
+                
+                for item in items_to_buy:
+                    result = process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
+                    
+                    if result['status'] == 'success':
+                        if first_order:
+                            ig_name = result['ig_name']
+                            first_order = False
+                        
+                        success_count += 1
+                        total_spent += item['price']
+                        order_ids_str += f"Order ID:\n{result['order_id']}\n"
+                        time.sleep(random.randint(5, 10)) 
+                    else:
+                        fail_count += 1
+                        error_msg = result['message']
+                        break 
+                
+                if success_count > 0:
+                    now = datetime.datetime.now(MMT)
+                    date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
+                    
+                    if currency_name == 'BR':
+                        db.update_balance(tg_id, br_amount=-total_spent)
+                    else:
+                        db.update_balance(tg_id, ph_amount=-total_spent)
+                    
+                    new_wallet = db.get_reseller(tg_id)
+                    new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
+                    
+                    report = f"{cmd_px} {game_id} ({zone_id}) {item_input}\n"
+                    report += "=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
+                    report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ SUCCESS\n"
+                    report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
+                    report += f"ɪɢ ɴᴀᴍᴇ: {ig_name}\n"
+                    report += order_ids_str
+                    report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
+                    report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
+                    report += f"ᴅᴀᴛᴇ: {date_str}\n"
+                    report += f"ᴜsᴇʀɴᴀᴍᴇ: {username_display}\n"
+                    report += f"ᴛᴏᴛᴀʟ sᴘᴇɴᴛ: ${total_spent:.2f}\n"
+                    report += f"💼 V-Wallet (Before): ${user_v_bal:.2f}\n"
+                    report += f"💼 V-Wallet (After): ${new_v_bal:.2f}\n\n"
+                    report += f"sᴜᴄᴄᴇss {success_count} / Fail {fail_count}" 
 
-                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
-                if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
-            else:
-                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order မအောင်မြင်ပါ:\n{error_msg}")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
+                    if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
+                else:
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order မအောင်မြင်ပါ:\n{error_msg}")
 
     except Exception as e:
         bot.reply_to(message, f"System Error: {str(e)}")
-
-# ==========================================
-# 10. 💓 HEARTBEAT FUNCTION
-# ==========================================
-def keep_cookie_alive():
-    while True:
-        try:
-            time.sleep(10 * 60) 
-            scraper = get_main_scraper()
-            headers = {
-                'User-Agent': 'Mozilla/5.0',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Origin': 'https://www.smile.one'
-            }
-            response = scraper.get('https://www.smile.one/customer/order', headers=headers)
-            if "login" not in response.url.lower() and response.status_code == 200:
-                print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 💓 Main Cookie is alive!")
-            else:
-                print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] ⚠️ Main Cookie expired. Auto-login triggered.")
-                auto_login_and_get_cookie()
-        except: pass
-
-@bot.message_handler(commands=['start'])
-def send_welcome(message): bot.reply_to(message, "Contact us @iwillgoforwardsalone")
-
-if __name__ == '__main__':
-    print("Clearing old webhooks if any...")
-    try:
-        bot.remove_webhook()
-        time.sleep(1)
-    except: pass
-        
-    print("Starting Heartbeat & Auto-login thread...")
-    threading.Thread(target=keep_cookie_alive, daemon=True).start()
-
-    print("Bot is successfully running (With MongoDB Virtual Wallet System)...")
-    bot.infinity_polling()

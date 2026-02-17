@@ -790,7 +790,7 @@ def handle_direct_buy(message):
                 
             items_to_buy = active_packages[item_input]
             
-            loading_msg = bot.reply_to(message, f"⏳ `{display_prefix} {game_id} ({zone_id}) {item_input}` အတွက် Order တင်နေပါသည်...", parse_mode="Markdown")
+            loading_msg = bot.reply_to(message, f"📊 `{display_prefix} {game_id} ({zone_id}) {item_input}` အတွက် Order တင်နေပါသည်...", parse_mode="Markdown")
             
             order_ids_str = ""
             total_price = 0.0

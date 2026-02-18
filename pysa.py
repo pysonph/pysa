@@ -662,7 +662,7 @@ def handle_direct_buy(message):
                     report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
                     report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
                     report += f"ɪɢ ɴᴀᴍᴇ: {safe_ig_name}\n"
-                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n<code>{order_ids_str}</code>"
+                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n`{order_ids_str}`"
                     report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
                     report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
                     report += f"ᴅᴀᴛᴇ: {date_str}\n"
@@ -673,7 +673,7 @@ def handle_direct_buy(message):
                     report += f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}" 
 
                     # ✅ Username Link အလုပ်လုပ်ရန် parse_mode="HTML" ထည့်ပေးထားပါသည်
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="HTML")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="Markdown")
                     if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
                 else:
                     # ✅ Duplicate else ကိုဖျက်ပြီး သင်လိုချင်သော Error စာသားဖြင့် အစားထိုးထားပါသည်
@@ -706,25 +706,33 @@ def keep_cookie_alive():
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    user_id = message.from_user.id
-    username = message.from_user.username
-    username_display = f"@{username}" if username else "None"
-    
-    # User သည် Owner သို့မဟုတ် Reseller စာရင်းထဲတွင် ပါ/မပါ စစ်ဆေးမည်
-    if is_authorized(message):
-        status = "🟢 Aᴄᴛɪᴠᴇ"
-    else:
-        status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
+    try:
+        tg_id = str(message.from_user.id)
         
-    welcome_text = (
-        f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
-        f"Usᴇʀɴᴀᴍᴇ: {username_display}\n"
-        f"𝐈𝐃: `{user_id}`\n"
-        f"Sᴛᴀᴛᴜs: {status}\n\n"
-        f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
-    )
-    
-    bot.reply_to(message, welcome_text, parse_mode="Markdown")
+        # Telegram နာမည်အစစ်ကို ယူမည်
+        first_name = message.from_user.first_name or ""
+        last_name = message.from_user.last_name or ""
+        full_name = f"{first_name} {last_name}".strip()
+        if not full_name:
+            full_name = "User"
+            
+        # နာမည်ကို နှိပ်လျှင် Profile သို့ရောက်မည့် HTML Link (HTML Error မတက်စေရန် < > များ ဖယ်မည်)
+        safe_full_name = full_name.replace('<', '').replace('>', '')
+        username_display = f'<a href="tg://user?id={tg_id}">{safe_full_name}</a>'
+        
+        if is_authorized(message):
+            status = "🟢 Aᴄᴛɪᴠᴇ"
+        else:
+            status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
+            
+        welcome_text = (
+            f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
+            f"Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+            f"𝐈𝐃: `{tg_id}`\n"
+            f"Sᴛᴀᴛᴜs: {status}\n\n"
+            f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+        )
+        bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 if __name__ == '__main__':
     print("Clearing old webhooks if any...")

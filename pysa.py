@@ -463,20 +463,12 @@ def handle_activecode(message):
                         db.update_balance(tg_id, ph_amount=added_ph)
                         currency_msg = f"{added_ph} PH"
 
-                    success_text = (
-                        f"<blockquote>"
-                        f"✅ <b>Activation Success!</b>\n"
-                        f"Code <code>{activation_code}</code> ကို အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ ({api_type})။\n"
-                        f"💰 သင့် V-Wallet သို့ {currency_msg} ထည့်သွင်းပေးလိုက်ပါသည်။"
-                        f"</blockquote>"
-                    )
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=success_text, parse_mode="HTML")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"sᴍɪʟᴇ ᴏɴᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ sᴜᴄᴄᴇss ✅")
                 else:
-                    fail_text = f"<blockquote>❌ <b>Redeem Failed!</b>\n{pay_res.get('msg', 'Error')}</blockquote>"
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=fail_text, parse_mode="HTML")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Rᴇᴅᴇᴇᴍ Fᴀɪʟ ❌")
             else:
-                check_fail_text = f"<blockquote>❌ <b>Check Failed!</b>\n{check_res.get('msg', 'Invalid Code')}</blockquote>"
-                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=check_fail_text, parse_mode="HTML")
+                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌")
+
         except Exception as e:
             bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Error: {str(e)}")
 
@@ -576,8 +568,16 @@ def handle_direct_buy(message):
     try:
         tg_id = str(message.from_user.id)
         lines = message.text.strip().split('\n')
-        telegram_user = message.from_user.username
-        username_display = f"@{telegram_user}" if telegram_user else tg_id
+        
+        # Telegram နာမည်အစစ်ကို ယူမည်
+        first_name = message.from_user.first_name or ""
+        last_name = message.from_user.last_name or ""
+        full_name = f"{first_name} {last_name}".strip()
+        if not full_name:
+            full_name = "User"
+            
+        safe_full_name = full_name.replace('<', '').replace('>', '')
+        username_display = f'<a href="tg://user?id={tg_id}">{safe_full_name}</a>'
         
         with transaction_lock:
             for line in lines:
@@ -607,13 +607,11 @@ def handle_direct_buy(message):
                 
                 if user_v_bal < total_required_price:
                     error_text = (
-                        f"<blockquote>"
                         f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\n"
                         f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
                         f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency_name}"
-                        f"</blockquote>"
                     )
-                    bot.reply_to(message, error_text, parse_mode="HTML")
+                    bot.reply_to(message, error_text, parse_mode="Markdown")
                     continue
                 
                 loading_msg = bot.reply_to(message, f"💻", parse_mode="Markdown")
@@ -626,7 +624,7 @@ def handle_direct_buy(message):
                 error_msg = ""
                 first_order = True
                 
-                for item in items_to_buy:
+                                for item in items_to_buy:
                     result = process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
                     
                     if result['status'] == 'success':
@@ -636,7 +634,10 @@ def handle_direct_buy(message):
                         
                         success_count += 1
                         total_spent += item['price']
-                        order_ids_str += f"Order ID:\n{result['order_id']}\n"
+                        
+                        # ✅ "Order ID:" စာသားကို ဖြုတ်ပြီး ID သီးသန့်ကိုသာ မှတ်သားပါမည်
+                        order_ids_str += f"{result['order_id']}\n"
+                        
                         time.sleep(random.randint(5, 10)) 
                     else:
                         fail_count += 1
@@ -660,7 +661,7 @@ def handle_direct_buy(message):
                     report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
                     report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
                     report += f"ɪɢ ɴᴀᴍᴇ: {ig_name}\n"
-                    report += order_ids_str
+                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n`{order_ids_str}`"
                     report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
                     report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
                     report += f"ᴅᴀᴛᴇ: {date_str}\n"
@@ -672,6 +673,9 @@ def handle_direct_buy(message):
 
                     bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
                     if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
+                else:
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order မအောင်မြင်ပါ:\n{error_msg}")
+
                 else:
                     bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Oʀᴅᴇʀ ғᴀɪʟ❌\n{error_msg}")
 
@@ -712,16 +716,14 @@ def send_welcome(message):
         status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
         
     welcome_text = (
-        f"<blockquote>"
         f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
         f"Usᴇʀɴᴀᴍᴇ: {username_display}\n"
-        f"𝐈𝐃: <code>{user_id}</code>\n"
+        f"𝐈𝐃: `{user_id}`\n"
         f"Sᴛᴀᴛᴜs: {status}\n\n"
         f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
-        f"</blockquote>"
     )
     
-    bot.reply_to(message, welcome_text, parse_mode="HTML")
+    bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 if __name__ == '__main__':
     print("Clearing old webhooks if any...")

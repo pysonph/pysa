@@ -662,7 +662,7 @@ def handle_direct_buy(message):
                     report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
                     report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
                     report += f"ɪɢ ɴᴀᴍᴇ: {safe_ig_name}\n"
-                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n`{order_ids_str}`"
+                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n<code>{order_ids_str}</code>"
                     report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
                     report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
                     report += f"ᴅᴀᴛᴇ: {date_str}\n"
@@ -673,7 +673,7 @@ def handle_direct_buy(message):
                     report += f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}" 
 
                     # ✅ Username Link အလုပ်လုပ်ရန် parse_mode="HTML" ထည့်ပေးထားပါသည်
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="Markdown")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="HTML")
                     if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
                 else:
                     # ✅ Duplicate else ကိုဖျက်ပြီး သင်လိုချင်သော Error စာသားဖြင့် အစားထိုးထားပါသည်

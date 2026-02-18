@@ -692,9 +692,9 @@ def send_welcome(message):
     
     # User သည် Owner သို့မဟုတ် Reseller စာရင်းထဲတွင် ပါ/မပါ စစ်ဆေးမည်
     if is_authorized(message):
-        status = "🟢 Active"
+        status = "🟢 Aᴄᴛɪᴠᴇ"
     else:
-        status = "🔴 Not Active"
+        status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
         
     welcome_text = (
         f"Hᴇʟʟᴏ Gᴀʏ😘\n\n"

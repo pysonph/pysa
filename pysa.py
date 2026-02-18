@@ -721,7 +721,7 @@ def send_welcome(message):
         f"</blockquote>"
     )
     
-    bot.reply_to(message, welcome_text, parse_mode="Markdown")
+    bot.reply_to(message, welcome_text, parse_mode="HTML")
 
 if __name__ == '__main__':
     print("Clearing old webhooks if any...")

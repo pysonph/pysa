@@ -569,55 +569,6 @@ def handle_direct_buy(message):
         tg_id = str(message.from_user.id)
         lines = message.text.strip().split('\n')
         
-        # Telegram နာမည်အစစ်ကို ယူမည်
-        first_name = message.from_user.first_name or ""
-        last_name = message.from_user.last_name or ""
-        full_name = f"{first_name} {last_name}".strip()
-        if not full_name:
-            full_name = "User"
-            
-        safe_full_name = full_name.replace('<', '').replace('>', '')
-        username_display = f'<a href="tg://user?id={tg_id}">{safe_full_name}</a>'
-        
-        with transaction_lock:
-            for line in lines:
-                line = line.strip()
-                if not line: continue 
-                    
-                match = re.search(r"(?i)^(br|bro|ph|pho)\s*(\d+)\s*\(\s*(\d+)\s*\)\s*([a-zA-Z0-9]+)", line)
-                if not match:
-                    bot.reply_to(message, f"❌ Format မှားယွင်းနေပါသည်: `{line}`\n(ဥပမာ - br 12345678 (1234) wp)", parse_mode="Markdown")
-                    continue
-                    
-                cmd_px, game_id, zone_id, item_input = match.group(1).lower(), match.group(2), match.group(3), match.group(4).lower()
-                
-                currency_name = 'PH' if cmd_px in ['ph', 'pho'] else 'BR'
-                active_pkgs = PH_PACKAGES if currency_name == 'PH' else BR_PACKAGES
-                v_bal_key = 'ph_balance' if currency_name == 'PH' else 'br_balance'
-                
-                if item_input not in active_pkgs:
-                    bot.reply_to(message, f"❌ '{item_input}' အတွက် Package မရှိပါ။")
-                    continue
-                    
-                items_to_buy = active_pkgs[item_input]
-                total_required_price = sum(item['price'] for item in items_to_buy)
-                
-                user_wallet = db.get_reseller(tg_id)
-                user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
-                
-                if user_v_bal < total_required_price:
-# ==========================================
-# 8. 💎 V-WALLET ဖြင့် ဝယ်ယူခြင်း (COMMAND HANDLER)
-# ==========================================
-@bot.message_handler(func=lambda message: re.match(r"(?i)^(br|bro|ph|pho)\s+\d+", message.text.strip()))
-def handle_direct_buy(message):
-    if not is_authorized(message):
-        return bot.reply_to(message, f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.", parse_mode="Markdown")
-
-    try:
-        tg_id = str(message.from_user.id)
-        lines = message.text.strip().split('\n')
-        
         # HTML Link မသုံးတော့ဘဲ ရိုးရိုး @username ကိုသာ ယူမည်
         telegram_user = message.from_user.username
         username_display = f"@{telegram_user}" if telegram_user else tg_id

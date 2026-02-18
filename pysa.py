@@ -558,7 +558,6 @@ def handle_check_role(message):
         bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ System Error: {str(e)}")
 
 # ==========================================
-# ==========================================
 # 8. 💎 V-WALLET ဖြင့် ဝယ်ယူခြင်း (COMMAND HANDLER)
 # ==========================================
 @bot.message_handler(func=lambda message: re.match(r"(?i)^(br|bro|ph|pho)\s+\d+", message.text.strip()))
@@ -566,7 +565,7 @@ def handle_direct_buy(message):
     if not is_authorized(message):
         return bot.reply_to(message, f"❌ သင့်တွင် ဤ Bot ကို အသုံးပြုခွင့် မရှိပါ။", parse_mode="Markdown")
 
-    try: # <--- ဤနေရာတွင် try: အသစ် ပြန်ထည့်ထားပါသည်
+    try:
         tg_id = str(message.from_user.id)
         lines = message.text.strip().split('\n')
         telegram_user = message.from_user.username
@@ -663,3 +662,40 @@ def handle_direct_buy(message):
 
     except Exception as e:
         bot.reply_to(message, f"System Error: {str(e)}")
+
+# ==========================================
+# 10. 💓 HEARTBEAT FUNCTION
+# ==========================================
+def keep_cookie_alive():
+    while True:
+        try:
+            time.sleep(10 * 60) 
+            scraper = get_main_scraper()
+            headers = {
+                'User-Agent': 'Mozilla/5.0',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Origin': 'https://www.smile.one'
+            }
+            response = scraper.get('https://www.smile.one/customer/order', headers=headers)
+            if "login" not in response.url.lower() and response.status_code == 200:
+                print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 💓 Main Cookie is alive!")
+            else:
+                print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] ⚠️ Main Cookie expired. Auto-login triggered.")
+                auto_login_and_get_cookie()
+        except: pass
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message): bot.reply_to(message, "Contact us @iwillgoforwardsalone")
+
+if __name__ == '__main__':
+    print("Clearing old webhooks if any...")
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except: pass
+        
+    print("Starting Heartbeat & Auto-login thread...")
+    threading.Thread(target=keep_cookie_alive, daemon=True).start()
+
+    print("Bot is successfully running (With MongoDB Virtual Wallet System)...")
+    bot.infinity_polling()

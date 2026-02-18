@@ -361,15 +361,15 @@ def set_cookie_command(message):
 
 @bot.message_handler(commands=['balance'])
 def check_balance_command(message):
-    if not is_authorized(message): return bot.reply_to(message, "❌ အသုံးပြုခွင့် မရှိပါ။")
+    if not is_authorized(message): return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     tg_id = str(message.from_user.id)
     user_wallet = db.get_reseller(tg_id)
-    if not user_wallet: return bot.reply_to(message, "❌ သင့်အကောင့် Data ကို ရှာမတွေ့ပါ။")
+    if not user_wallet: return bot.reply_to(message, "Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
-    report = f"👤 သင့် V-Wallet လက်ကျန်ငွေ:\n\n"
-    report += f"🇧🇷 BR Balance: ${user_wallet.get('br_balance', 0.0):,.2f}\n"
-    report += f"🇵🇭 PH Balance: ${user_wallet.get('ph_balance', 0.0):,.2f}"
+    report = f"💳 Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
+    report += f"🇧🇷 ʙʀ-ʙᴀʟᴀɴᴄᴇ: ${user_wallet.get('br_balance', 0.0):,.2f}\n"
+    report += f"🇵🇭 ᴘʜ-ʙᴀʟᴀɴᴄᴇ: ${user_wallet.get('ph_balance', 0.0):,.2f}"
     
     if message.from_user.id == OWNER_ID:
         loading_msg = bot.reply_to(message, "⏳ Main အကောင့်၏ လက်ကျန်ငွေ အစစ်ကိုပါ ဆွဲယူနေပါသည်...")
@@ -377,9 +377,9 @@ def check_balance_command(message):
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
             balances = get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
-            report += f"\n\n🏦 **MAIN ACCOUNT (REAL BALANCE):**\n"
-            report += f"BR: ${balances.get('br_balance', 0.00):,.2f}\n"
-            report += f"PH: ${balances.get('ph_balance', 0.00):,.2f}"
+            report += f"\n\n💳 **Oғғɪᴄɪᴀʟ ᴀᴄᴄᴏᴜɴᴛ-ʙᴀʟᴀɴᴄᴇ:**\n"
+            report += f"ʙʀ-ʙᴀʟᴀɴᴄᴇ: ${balances.get('br_balance', 0.00):,.2f}\n"
+            report += f"ᴘʜ-ʙᴀʟᴀɴᴄᴇ: ${balances.get('ph_balance', 0.00):,.2f}"
             bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="Markdown")
         except:
             bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
@@ -391,7 +391,7 @@ def check_balance_command(message):
 # ==========================================
 @bot.message_handler(func=lambda message: re.match(r"(?i)^/(activecodebr|activecodeph)\b", message.text.strip()))
 def handle_activecode(message):
-    if not is_authorized(message): return bot.reply_to(message, "❌ အသုံးပြုခွင့် မရှိပါ။")
+    if not is_authorized(message): return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     match = re.search(r"(?i)^/(activecodebr|activecodeph)\s+([a-zA-Z0-9]+)", message.text.strip())
     if not match: return bot.reply_to(message, "⚠️ အသုံးပြုရန် ပုံစံ - `/activecodebr <Code>` သို့မဟုတ် `/activecodeph <Code>`", parse_mode="Markdown")
@@ -415,7 +415,7 @@ def handle_activecode(message):
         base_referer = 'https://www.smile.one/'
         api_type = "BR"
 
-    loading_msg = bot.reply_to(message, f"⏳ {api_type} အတွက် သင့် Wallet သို့ Code `{activation_code}` သွင်းနေပါသည်...", parse_mode="Markdown")
+    loading_msg = bot.reply_to(message, f"📊 {api_type} အတွက် သင့် Wallet သို့ Code `{activation_code}` သွင်းနေပါသည်...", parse_mode="Markdown")
     
     with transaction_lock:
         scraper = get_main_scraper()
@@ -430,7 +430,7 @@ def handle_activecode(message):
 
         try:
             res = scraper.get(page_url, headers=headers)
-            if "login" in res.url.lower(): return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ Main Cookie သက်တမ်းကုန်နေပါသည်။ Owner ထံ အကြောင်းကြားပါ။")
+            if "login" in res.url.lower(): return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="ʏᴏᴜʀ ᴄᴏᴏᴋɪᴇs ɪs ᴇxᴘɪʀᴇᴅ.")
 
             soup = BeautifulSoup(res.text, 'html.parser')
             csrf_token = soup.find('meta', {'name': 'csrf-token'})
@@ -463,9 +463,9 @@ def handle_activecode(message):
                         db.update_balance(tg_id, ph_amount=added_ph)
                         currency_msg = f"{added_ph} PH"
 
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"✅ **Activation Success!**\nCode `{activation_code}` သွင်းပြီးပါပြီ。\n💰 သင့် V-Wallet သို့ {currency_msg} ထည့်သွင်းပေးလိုက်ပါသည်။", parse_mode="Markdown")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Aᴄᴛɪᴠᴀᴛɪᴏɴ Sᴜᴄᴄᴇss✅")
                 else:
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ **Redeem Failed!**\n{pay_res.get('msg', 'Error')}")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Rᴇᴅᴇᴇᴍ Fᴀɪʟᴇᴅ❌")
             else:
                 bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ **Check Failed!**\n{check_res.get('msg', 'Invalid Code')}")
 
@@ -478,16 +478,16 @@ def handle_activecode(message):
 @bot.message_handler(func=lambda message: re.match(r"(?i)^/?role\b", message.text.strip()))
 def handle_check_role(message):
     if not is_authorized(message):
-        return bot.reply_to(message, "❌ အသုံးပြုခွင့် မရှိပါ။", parse_mode="Markdown")
+        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.", parse_mode="Markdown")
 
     match = re.search(r"(?i)^/?role\s+(\d+)\s*\(\s*(\d+)\s*\)", message.text.strip())
     if not match:
-        return bot.reply_to(message, "❌ Format မှားယွင်းနေပါသည်:\n(ဥပမာ - `/role 184224272 (2931)`)", parse_mode="Markdown")
+        return bot.reply_to(message, "❌ Format မှားယွင်းနေပါသည်:\n(ဥပမာ - `/role 123456789 (12345)`)", parse_mode="Markdown")
 
     game_id = match.group(1).strip()
     zone_id = match.group(2).strip()
     
-    loading_msg = bot.reply_to(message, "⏳ အကောင့်နှင့် Region ကို ရှာဖွေနေပါသည်...")
+    loading_msg = bot.reply_to(message, "💻")
 
     scraper = get_main_scraper()
     
@@ -563,7 +563,7 @@ def handle_check_role(message):
 @bot.message_handler(func=lambda message: re.match(r"(?i)^(br|bro|ph|pho)\s+\d+", message.text.strip()))
 def handle_direct_buy(message):
     if not is_authorized(message):
-        return bot.reply_to(message, f"❌ သင့်တွင် ဤ Bot ကို အသုံးပြုခွင့် မရှိပါ။", parse_mode="Markdown")
+        return bot.reply_to(message, f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.", parse_mode="Markdown")
 
     try:
         tg_id = str(message.from_user.id)
@@ -598,10 +598,14 @@ def handle_direct_buy(message):
                 user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
                 
                 if user_v_bal < total_required_price:
-                    bot.reply_to(message, f"❌ သင့် V-Wallet တွင် ငွေမလုံလောက်ပါ။\nလိုအပ်သောငွေ: {total_required_price} {currency_name}\nသင့်လက်ကျန်: {user_v_bal} {currency_name}")
+                    bot.reply_to(message, f"""
+> • Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.
+> • Nᴇᴇᴅ sᴄ ᴀᴍᴏᴜɴᴛ : {total_required_price} {currency_name}
+> • Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ : {user_v_bal} {currency_name}
+""")
                     continue
                 
-                loading_msg = bot.reply_to(message, f"📊 `{cmd_px} {game_id} ({zone_id}) {item_input}` အတွက် Order တင်နေပါသည်...", parse_mode="Markdown")
+                loading_msg = bot.reply_to(message, f"💻", parse_mode="Markdown")
                 
                 success_count = 0
                 fail_count = 0
@@ -642,7 +646,7 @@ def handle_direct_buy(message):
                     
                     report = f"{cmd_px} {game_id} ({zone_id}) {item_input}\n"
                     report += "=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
-                    report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ SUCCESS\n"
+                    report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
                     report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
                     report += f"ɪɢ ɴᴀᴍᴇ: {ig_name}\n"
                     report += order_ids_str
@@ -651,17 +655,17 @@ def handle_direct_buy(message):
                     report += f"ᴅᴀᴛᴇ: {date_str}\n"
                     report += f"ᴜsᴇʀɴᴀᴍᴇ: {username_display}\n"
                     report += f"ᴛᴏᴛᴀʟ sᴘᴇɴᴛ: ${total_spent:.2f}\n"
-                    report += f"💼 V-Wallet (Before): ${user_v_bal:.2f}\n"
-                    report += f"💼 V-Wallet (After): ${new_v_bal:.2f}\n\n"
-                    report += f"sᴜᴄᴄᴇss {success_count} / Fail {fail_count}" 
+                    report += f"ɪɴɪᴛɪᴀʟ ʙᴀʟᴀɴᴄᴇ: ${user_v_bal:.2f}\n"
+                    report += f"ғɪɴᴀʟ ʙᴀʟᴀɴᴄᴇ: ${new_v_bal:.2f}\n\n"
+                    report += f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}" 
 
                     bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
                     if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
                 else:
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order မအောင်မြင်ပါ:\n{error_msg}")
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Oʀᴅᴇʀ ғᴀɪʟ❌\n{error_msg}")
 
     except Exception as e:
-        bot.reply_to(message, f"System Error: {str(e)}")
+        bot.reply_to(message, f"Sʏsᴛᴇᴍ ᴇʀʀᴏʀ: {str(e)}")
 
 # ==========================================
 # 10. 💓 HEARTBEAT FUNCTION
@@ -688,7 +692,7 @@ def keep_cookie_alive():
 def send_welcome(message):
     user_id = message.from_user.id
     username = message.from_user.username
-    username_display = f"@{username}" if username else "မရှိပါ"
+    username_display = f"@{username}" if username else "None"
     
     # User သည် Owner သို့မဟုတ် Reseller စာရင်းထဲတွင် ပါ/မပါ စစ်ဆေးမည်
     if is_authorized(message):
@@ -696,13 +700,13 @@ def send_welcome(message):
     else:
         status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
         
-    welcome_text = (
-        f"Hᴇʟʟᴏ Gᴀʏ😘\n\n"
-        f"👤 Usᴇʀɴᴀᴍᴇ: {username_display}\n"
-        f"🆔 ɪᴅ: `{user_id}`\n"
-        f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
-        f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
-    )
+    welcome_text = """
+> • Hᴇʏ Bᴀʙʏ 👋
+> • Usᴇʀɴᴀᴍᴇ: {username_display}
+> • 𝐈𝐃: {user_id}
+> • Sᴛᴀᴛᴜs: {status}
+> • Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone 🦋
+"""
     
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 

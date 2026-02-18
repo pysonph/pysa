@@ -685,7 +685,26 @@ def keep_cookie_alive():
         except: pass
 
 @bot.message_handler(commands=['start'])
-def send_welcome(message): bot.reply_to(message, "Contact us @iwillgoforwardsalone")
+def send_welcome(message):
+    user_id = message.from_user.id
+    username = message.from_user.username
+    username_display = f"@{username}" if username else "မရှိပါ"
+    
+    # User သည် Owner သို့မဟုတ် Reseller စာရင်းထဲတွင် ပါ/မပါ စစ်ဆေးမည်
+    if is_authorized(message):
+        status = "🟢 Active"
+    else:
+        status = "🔴 Not Active"
+        
+    welcome_text = (
+        f"Hᴇʟʟᴏ Gᴀʏ😘\n\n"
+        f"👤 Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+        f"🆔 ɪᴅ: `{user_id}`\n"
+        f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
+        f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+    )
+    
+    bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 if __name__ == '__main__':
     print("Clearing old webhooks if any...")

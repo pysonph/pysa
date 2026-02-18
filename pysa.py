@@ -345,10 +345,10 @@ def list_resellers(message):
     
     for r in resellers_list:
         role = "owner" if r["tg_id"] == str(OWNER_ID) else "reseller"
-        user_list.append(f"🔹 ID: `{r['tg_id']}` ({role})\n   BR: ${r.get('br_balance', 0.0)} | PH: ${r.get('ph_balance', 0.0)}")
+        user_list.append(f"🟢 ID: `{r['tg_id']}` ({role})\n   BR: ${r.get('br_balance', 0.0)} | PH: ${r.get('ph_balance', 0.0)}")
             
     final_text = "\n\n".join(user_list) if user_list else "No resellers found."
-    bot.reply_to(message, f"📋 **ခွင့်ပြုထားသော Resellers စာရင်း (V-Wallet):**\n\n{final_text}", parse_mode="Markdown")
+    bot.reply_to(message, f"🟢 **ခွင့်ပြုထားသော Resellers စာရင်း (V-Wallet):**\n\n{final_text}", parse_mode="Markdown")
 
 @bot.message_handler(commands=['setcookie'])
 def set_cookie_command(message):
@@ -463,12 +463,20 @@ def handle_activecode(message):
                         db.update_balance(tg_id, ph_amount=added_ph)
                         currency_msg = f"{added_ph} PH"
 
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Aᴄᴛɪᴠᴀᴛɪᴏɴ Sᴜᴄᴄᴇss✅")
+                    success_text = (
+                        f"<blockquote>"
+                        f"✅ <b>Activation Success!</b>\n"
+                        f"Code <code>{activation_code}</code> ကို အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီ ({api_type})။\n"
+                        f"💰 သင့် V-Wallet သို့ {currency_msg} ထည့်သွင်းပေးလိုက်ပါသည်။"
+                        f"</blockquote>"
+                    )
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=success_text, parse_mode="HTML")
                 else:
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Rᴇᴅᴇᴇᴍ Fᴀɪʟᴇᴅ❌")
+                    fail_text = f"<blockquote>❌ <b>Redeem Failed!</b>\n{pay_res.get('msg', 'Error')}</blockquote>"
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=fail_text, parse_mode="HTML")
             else:
-                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ **Check Failed!**\n{check_res.get('msg', 'Invalid Code')}")
-
+                check_fail_text = f"<blockquote>❌ <b>Check Failed!</b>\n{check_res.get('msg', 'Invalid Code')}</blockquote>"
+                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=check_fail_text, parse_mode="HTML")
         except Exception as e:
             bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Error: {str(e)}")
 
@@ -598,11 +606,14 @@ def handle_direct_buy(message):
                 user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
                 
                 if user_v_bal < total_required_price:
-                    bot.reply_to(message, f"""
-> • Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.
-> • Nᴇᴇᴅ sᴄ ᴀᴍᴏᴜɴᴛ : {total_required_price} {currency_name}
-> • Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ : {user_v_bal} {currency_name}
-""")
+                    error_text = (
+                        f"<blockquote>"
+                        f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\n"
+                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
+                        f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency_name}"
+                        f"</blockquote>"
+                    )
+                    bot.reply_to(message, error_text, parse_mode="HTML")
                     continue
                 
                 loading_msg = bot.reply_to(message, f"💻", parse_mode="Markdown")
@@ -700,13 +711,15 @@ def send_welcome(message):
     else:
         status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
         
-    welcome_text = """
-> • Hᴇʏ Bᴀʙʏ 👋
-> • Usᴇʀɴᴀᴍᴇ: {username_display}
-> • 𝐈𝐃: {user_id}
-> • Sᴛᴀᴛᴜs: {status}
-> • Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone 🦋
-"""
+    welcome_text = (
+        f"<blockquote>"
+        f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
+        f"Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+        f"𝐈𝐃: <code>{user_id}</code>\n"
+        f"Sᴛᴀᴛᴜs: {status}\n\n"
+        f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+        f"</blockquote>"
+    )
     
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 

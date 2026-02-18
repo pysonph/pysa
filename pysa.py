@@ -704,6 +704,9 @@ def keep_cookie_alive():
                 auto_login_and_get_cookie()
         except: pass
 
+# ==========================================
+# 9. START BOT / DEFAULT COMMAND
+# ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     try:
@@ -734,6 +737,9 @@ def send_welcome(message):
         )
         bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
+# ==========================================
+# 10. RUN BOT
+# ==========================================
 if __name__ == '__main__':
     print("Clearing old webhooks if any...")
     try:

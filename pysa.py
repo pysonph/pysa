@@ -624,7 +624,7 @@ def handle_direct_buy(message):
                 error_msg = ""
                 first_order = True
                 
-                                for item in items_to_buy:
+                for item in items_to_buy:
                     result = process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
                     
                     if result['status'] == 'success':
@@ -635,7 +635,6 @@ def handle_direct_buy(message):
                         success_count += 1
                         total_spent += item['price']
                         
-                        # ✅ "Order ID:" စာသားကို ဖြုတ်ပြီး ID သီးသန့်ကိုသာ မှတ်သားပါမည်
                         order_ids_str += f"{result['order_id']}\n"
                         
                         time.sleep(random.randint(5, 10)) 
@@ -656,12 +655,14 @@ def handle_direct_buy(message):
                     new_wallet = db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
                     
-                    report = f"{cmd_px} {game_id} ({zone_id}) {item_input}\n"
+                    safe_ig_name = str(ig_name).replace('<', '&lt;').replace('>', '&gt;')
+
+                    report = f"<b>{cmd_px.upper()} {game_id} ({zone_id}) {item_input}</b>\n"
                     report += "=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
                     report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
                     report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
-                    report += f"ɪɢ ɴᴀᴍᴇ: {ig_name}\n"
-                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n`{order_ids_str}`"
+                    report += f"ɪɢ ɴᴀᴍᴇ: {safe_ig_name}\n"
+                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n<code>{order_ids_str}</code>"
                     report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
                     report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
                     report += f"ᴅᴀᴛᴇ: {date_str}\n"
@@ -671,16 +672,16 @@ def handle_direct_buy(message):
                     report += f"ғɪɴᴀʟ ʙᴀʟᴀɴᴄᴇ: ${new_v_bal:.2f}\n\n"
                     report += f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}" 
 
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
+                    # ✅ Username Link အလုပ်လုပ်ရန် parse_mode="HTML" ထည့်ပေးထားပါသည်
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="HTML")
                     if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
                 else:
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order မအောင်မြင်ပါ:\n{error_msg}")
-
-                else:
+                    # ✅ Duplicate else ကိုဖျက်ပြီး သင်လိုချင်သော Error စာသားဖြင့် အစားထိုးထားပါသည်
                     bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Oʀᴅᴇʀ ғᴀɪʟ❌\n{error_msg}")
 
     except Exception as e:
         bot.reply_to(message, f"Sʏsᴛᴇᴍ ᴇʀʀᴏʀ: {str(e)}")
+
 
 # ==========================================
 # 10. 💓 HEARTBEAT FUNCTION

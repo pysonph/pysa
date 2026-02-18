@@ -606,6 +606,49 @@ def handle_direct_buy(message):
                 user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
                 
                 if user_v_bal < total_required_price:
+# ==========================================
+# 8. 💎 V-WALLET ဖြင့် ဝယ်ယူခြင်း (COMMAND HANDLER)
+# ==========================================
+@bot.message_handler(func=lambda message: re.match(r"(?i)^(br|bro|ph|pho)\s+\d+", message.text.strip()))
+def handle_direct_buy(message):
+    if not is_authorized(message):
+        return bot.reply_to(message, f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.", parse_mode="Markdown")
+
+    try:
+        tg_id = str(message.from_user.id)
+        lines = message.text.strip().split('\n')
+        
+        # HTML Link မသုံးတော့ဘဲ ရိုးရိုး @username ကိုသာ ယူမည်
+        telegram_user = message.from_user.username
+        username_display = f"@{telegram_user}" if telegram_user else tg_id
+        
+        with transaction_lock:
+            for line in lines:
+                line = line.strip()
+                if not line: continue 
+                    
+                match = re.search(r"(?i)^(br|bro|ph|pho)\s*(\d+)\s*\(\s*(\d+)\s*\)\s*([a-zA-Z0-9]+)", line)
+                if not match:
+                    bot.reply_to(message, f"❌ Format မှားယွင်းနေပါသည်: `{line}`\n(ဥပမာ - br 12345678 (1234) wp)", parse_mode="Markdown")
+                    continue
+                    
+                cmd_px, game_id, zone_id, item_input = match.group(1).lower(), match.group(2), match.group(3), match.group(4).lower()
+                
+                currency_name = 'PH' if cmd_px in ['ph', 'pho'] else 'BR'
+                active_pkgs = PH_PACKAGES if currency_name == 'PH' else BR_PACKAGES
+                v_bal_key = 'ph_balance' if currency_name == 'PH' else 'br_balance'
+                
+                if item_input not in active_pkgs:
+                    bot.reply_to(message, f"❌ '{item_input}' အတွက် Package မရှိပါ။")
+                    continue
+                    
+                items_to_buy = active_pkgs[item_input]
+                total_required_price = sum(item['price'] for item in items_to_buy)
+                
+                user_wallet = db.get_reseller(tg_id)
+                user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
+                
+                if user_v_bal < total_required_price:
                     error_text = (
                         f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\n"
                         f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
@@ -635,7 +678,9 @@ def handle_direct_buy(message):
                         success_count += 1
                         total_spent += item['price']
                         
-                        order_ids_str += f"{result['order_id']}\n"
+                        # ✅ "Order ID:" စာသားကို ဖြုတ်ပြီး ID သီးသန့်ကိုသာ မှတ်သားပါမည်
+                        # (ID တစ်ခုချင်းစီကို Copy ကူးရလွယ်အောင် ` ` လေးများ ခံပေးထားပါသည်)
+                        order_ids_str += f"`{result['order_id']}`\n"
                         
                         time.sleep(random.randint(5, 10)) 
                     else:
@@ -655,14 +700,13 @@ def handle_direct_buy(message):
                     new_wallet = db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
                     
-                    safe_ig_name = str(ig_name).replace('<', '&lt;').replace('>', '&gt;')
-
-                    report = f"<b>{cmd_px.upper()} {game_id} ({zone_id}) {item_input}</b>\n"
+                    # Markdown ပုံစံဖြင့် Report ထုတ်ပေးမည်
+                    report = f"**{cmd_px.upper()} {game_id} ({zone_id}) {item_input}**\n"
                     report += "=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
                     report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
                     report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
-                    report += f"ɪɢ ɴᴀᴍᴇ: {safe_ig_name}\n"
-                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n<code>{order_ids_str}</code>"
+                    report += f"ɪɢ ɴᴀᴍᴇ: {ig_name}\n"
+                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n{order_ids_str}"
                     report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
                     report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
                     report += f"ᴅᴀᴛᴇ: {date_str}\n"
@@ -672,11 +716,10 @@ def handle_direct_buy(message):
                     report += f"ғɪɴᴀʟ ʙᴀʟᴀɴᴄᴇ: ${new_v_bal:.2f}\n\n"
                     report += f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}" 
 
-                    # ✅ Username Link အလုပ်လုပ်ရန် parse_mode="HTML" ထည့်ပေးထားပါသည်
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="HTML")
+                    # parse_mode="Markdown" အဖြစ် ပြန်ပြောင်းထားပါသည်
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="Markdown")
                     if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
                 else:
-                    # ✅ Duplicate else ကိုဖျက်ပြီး သင်လိုချင်သော Error စာသားဖြင့် အစားထိုးထားပါသည်
                     bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Oʀᴅᴇʀ ғᴀɪʟ❌\n{error_msg}")
 
     except Exception as e:

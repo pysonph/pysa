@@ -731,11 +731,27 @@ def send_welcome(message):
         welcome_text = (
             f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
             f"Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+            f"𝐈𝐃: <code>{tg_id}</code>\n"
+            f"Sᴛᴀᴛᴜs: {status}\n\n"
+            f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+        )
+        
+        # HTML Link အလုပ်လုပ်ရန် parse_mode="HTML" ဖြင့် ပို့မည်
+        bot.reply_to(message, welcome_text, parse_mode="HTML")
+        
+    except Exception as e:
+        # အကယ်၍ HTML Error တက်ခဲ့လျှင် Bot မရပ်သွားစေရန် ရိုးရိုးစာသားဖြင့် ပို့မည်
+        print(f"Start Cmd Error: {e}")
+        
+        # Fallback တွင် User Name အစစ်ကိုသာ ထည့်ပေးမည်
+        fallback_text = (
+            f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
+            f"Usᴇʀɴᴀᴍᴇ: {full_name}\n"
             f"𝐈𝐃: `{tg_id}`\n"
             f"Sᴛᴀᴛᴜs: {status}\n\n"
             f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
-        bot.reply_to(message, welcome_text, parse_mode="Markdown")
+        bot.reply_to(message, fallback_text)
 
 # ==========================================
 # 10. RUN BOT

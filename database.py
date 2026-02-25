@@ -17,6 +17,7 @@ try:
     db = client['smile_vwallet_db']
     resellers_col = db['resellers']
     settings_col = db['settings']
+    orders_col = db['orders']
     print("✅ MongoDB ချိတ်ဆက်မှု အောင်မြင်ပါသည်။ (Virtual Wallet Database)")
 except Exception as e:
     print(f"❌ MongoDB ချိတ်ဆက်မှု မအောင်မြင်ပါ: {e}")
@@ -77,3 +78,30 @@ def update_balance(tg_id, br_amount=0.0, ph_amount=0.0):
         {"tg_id": str(tg_id)},
         {"$inc": {"br_balance": br_amount, "ph_balance": ph_amount}}
     )
+
+
+def save_order(tg_id, game_id, zone_id, item_name, price, order_id, status="success"):
+    """Order အောင်မြင်ပါက Database သို့ မှတ်တမ်းတင်မည်"""
+    import datetime
+    # MMT (Myanmar Time) ရယူရန်
+    MMT = datetime.timezone(datetime.timedelta(hours=6, minutes=30))
+    now = datetime.datetime.now(MMT)
+    
+    order_data = {
+        "tg_id": str(tg_id),
+        "game_id": str(game_id),
+        "zone_id": str(zone_id),
+        "item_name": item_name,
+        "price": float(price),
+        "order_id": str(order_id),
+        "status": status,
+        "date_str": now.strftime("%I:%M:%S %p %d.%m.%Y"), # Format: 08:50:18AM 25.10.2025
+        "timestamp": now # Sorting အတွက် အချိန်မှန်ကို သိမ်းထားမည်
+    }
+    orders_col.insert_one(order_data)
+
+def get_user_history(tg_id, limit=5):
+    """User တစ်ယောက်၏ နောက်ဆုံး Order ၅ ခုကို ဆွဲထုတ်မည်"""
+    # timestamp ကိုကြည့်ပြီး အသစ်ဆုံးကို အရင်စီပါမယ် (-1 means descending)
+    cursor = orders_col.find({"tg_id": str(tg_id)}).sort("timestamp", -1).limit(limit)
+    return list(cursor)

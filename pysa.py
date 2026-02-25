@@ -1199,6 +1199,37 @@ async def show_price_list_mcc(client, message: Message):
 
     await message.reply(response_text, parse_mode=ParseMode.HTML)
 
+
+
+# ==========================================
+# 🧮 SMART CALCULATOR FUNCTION
+# ==========================================
+@app.on_message(filters.text & filters.regex(r"^[\d\s\.\(\)]+[\+\-\*\/][\d\s\+\-\*\/\(\)\.]+$"))
+async def auto_calculator(client, message: Message):
+    try:
+        expr = message.text.strip()
+        
+        if re.match(r"^09[-\s]?\d+", expr):
+            return
+            
+        clean_expr = expr.replace(" ", "")
+        
+        result = eval(clean_expr, {"__builtins__": None})
+        
+        if isinstance(result, float):
+            formatted_result = f"{result:.4f}".rstrip('0').rstrip('.')
+        else:
+            formatted_result = str(result)
+            
+        response = f"{expr} = {formatted_result}"
+        
+        await message.reply_text(response, quote=False)
+        
+    except Exception:
+        pass
+
+
+
 # ==========================================
 # 10. 💓 HEARTBEAT FUNCTION
 # ==========================================

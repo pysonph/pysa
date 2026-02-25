@@ -4,13 +4,11 @@ import datetime
 import cloudscraper
 from bs4 import BeautifulSoup
 import json
-import time
 import random
 from dotenv import load_dotenv
-import threading
-from playwright.sync_api import sync_playwright
-import html
 import asyncio
+from playwright.async_api import async_playwright
+import html
 
 # 🟢 Pyrogram Imports
 from pyrogram import Client, filters
@@ -25,8 +23,8 @@ import database as db
 load_dotenv() 
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-API_ID = int(os.getenv('API_ID', 123456))  # Pyrogram လိုအပ်သော API_ID ထည့်ပါ
-API_HASH = os.getenv('API_HASH', "your_api_hash_here") # Pyrogram လိုအပ်သော API_HASH ထည့်ပါ
+API_ID = int(os.getenv('API_ID', 20078321)) 
+API_HASH = os.getenv('API_HASH', "c8ed904e4aac83cea1f27b73984debad") 
 OWNER_ID = int(os.getenv('OWNER_ID', 1318826936)) 
 FB_EMAIL = os.getenv('FB_EMAIL')
 FB_PASS = os.getenv('FB_PASS')
@@ -45,7 +43,8 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-transaction_lock = threading.Lock()
+# Pyrogram တွင် Blocking မဖြစ်စေရန် Threading Lock အစား Asyncio Lock သုံးရမည်
+transaction_lock = asyncio.Lock()
 
 # Initialize Owner account in Database
 db.init_owner(OWNER_ID)
@@ -68,57 +67,58 @@ def get_main_scraper():
     return scraper
 
 # ==========================================
-# 🤖 PLAYWRIGHT AUTO-LOGIN (FACEBOOK)
+# 🤖 PLAYWRIGHT AUTO-LOGIN (FACEBOOK) [FULLY ASYNC]
 # ==========================================
-def auto_login_and_get_cookie():
+async def auto_login_and_get_cookie():
     if not FB_EMAIL or not FB_PASS:
         print("❌ FB_EMAIL and FB_PASS are missing in .env.")
         return False
         
     print("Logging in with Facebook to fetch new Cookie...")
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
                 headless=True, 
                 args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
             )
-            context = browser.new_context(
+            context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 viewport={'width': 1280, 'height': 720}
             )
-            page = context.new_page()
+            page = await context.new_page()
             
-            page.goto("https://www.smile.one/customer/login")
-            time.sleep(5) 
+            await page.goto("https://www.smile.one/customer/login")
+            await asyncio.sleep(5) 
             
-            with context.expect_page() as popup_info:
-                page.locator("a.login-btn-facebook, a[href*='facebook.com']").first.click()
+            async with context.expect_page() as popup_info:
+                await page.locator("a.login-btn-facebook, a[href*='facebook.com']").first.click()
             
-            fb_popup = popup_info.value
-            fb_popup.wait_for_load_state()
+            fb_popup = await popup_info.value
+            await fb_popup.wait_for_load_state()
             
-            time.sleep(2)
-            fb_popup.fill('input[name="email"]', FB_EMAIL)
-            time.sleep(1)
-            fb_popup.fill('input[name="pass"]', FB_PASS)
-            time.sleep(1)
+            await asyncio.sleep(2)
+            await fb_popup.fill('input[name="email"]', FB_EMAIL)
+            await asyncio.sleep(1)
+            await fb_popup.fill('input[name="pass"]', FB_PASS)
+            await asyncio.sleep(1)
             
-            fb_popup.click('button[name="login"], input[name="login"]')
+            await fb_popup.click('button[name="login"], input[name="login"]')
             
             try:
-                page.wait_for_url("**/customer/order**", timeout=30000)
+                await page.wait_for_url("**/customer/order**", timeout=30000)
                 print("✅ Auto-Login successful. Saving Cookie...")
                 
-                cookies = context.cookies()
+                cookies = await context.cookies()
                 cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
                 raw_cookie_str = "; ".join([f"{k}={v}" for k, v in cookie_dict.items()])
                 
-                db.update_main_cookie(raw_cookie_str)
-                browser.close()
+                # Database write is sync, wrap in thread to be safe
+                await asyncio.to_thread(db.update_main_cookie, raw_cookie_str)
+                await browser.close()
                 return True
             except Exception as wait_e:
                 print(f"❌ Did not reach the Order page. (Possible Facebook Checkpoint): {wait_e}")
-                browser.close()
+                await browser.close()
                 return False
             
     except Exception as e:
@@ -213,12 +213,13 @@ MCC_PACKAGES = {
 }
 
 # ==========================================
-# 2. FUNCTION TO GET REAL BALANCE
+# 2. FUNCTION TO GET REAL BALANCE (ASYNC WRAPPED)
 # ==========================================
-def get_smile_balance(scraper, headers, balance_url='https://www.smile.one/customer/order'):
+async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one/customer/order'):
     balances = {'br_balance': 0.00, 'ph_balance': 0.00}
     try:
-        response = scraper.get(balance_url, headers=headers)
+        # Network request ကို Async ပြောင်းထားသည်
+        response = await asyncio.to_thread(scraper.get, balance_url, headers=headers)
         br_match = re.search(r'(?i)(?:Balance|Saldo)[\s:]*?<\/p>\s*<p>\s*([\d\.,]+)', response.text)
         if br_match: balances['br_balance'] = float(br_match.group(1).replace(',', ''))
         else:
@@ -240,9 +241,9 @@ def get_smile_balance(scraper, headers, balance_url='https://www.smile.one/custo
     return balances
 
 # ==========================================
-# 3. SMILE.ONE SCRAPER FUNCTION (MLBB)
+# 3. SMILE.ONE SCRAPER FUNCTION (MLBB) [FULLY ASYNC]
 # ==========================================
-def process_smile_one_order(game_id, zone_id, product_id, currency_name):
+async def process_smile_one_order(game_id, zone_id, product_id, currency_name):
     scraper = get_main_scraper()
 
     if currency_name == 'PH':
@@ -251,14 +252,12 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
         query_url = 'https://www.smile.one/ph/merchant/mobilelegends/query'
         pay_url = 'https://www.smile.one/ph/merchant/mobilelegends/pay'
         order_api_url = 'https://www.smile.one/ph/customer/activationcode/codelist'
-        balance_url = 'https://www.smile.one/ph/customer/order'
     else:
         main_url = 'https://www.smile.one/merchant/mobilelegends'
         checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
         query_url = 'https://www.smile.one/merchant/mobilelegends/query'
         pay_url = 'https://www.smile.one/merchant/mobilelegends/pay'
         order_api_url = 'https://www.smile.one/customer/activationcode/codelist'
-        balance_url = 'https://www.smile.one/customer/order'
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -268,7 +267,7 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
     }
 
     try:
-        response = scraper.get(main_url, headers=headers)
+        response = await asyncio.to_thread(scraper.get, main_url, headers=headers)
         if response.status_code in [403, 503] or "cloudflare" in response.text.lower():
              return {"status": "error", "message": "Blocked by Cloudflare."}
 
@@ -283,9 +282,9 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
         if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Add a new Cookie using /setcookie."}
 
         check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
-        role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
+        role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
         try:
-            role_result = role_response.json()
+            role_result = role_response_raw.json()
             ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
             if not ig_name or str(ig_name).strip() == "":
                 real_error = role_result.get('msg') or role_result.get('message') or "Account not found."
@@ -293,9 +292,9 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
         except Exception: return {"status": "error", "message": "Check Role API Error: Cannot verify account."}
 
         query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
-        query_response = scraper.post(query_url, data=query_data, headers=headers)
+        query_response_raw = await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
         
-        try: query_result = query_response.json()
+        try: query_result = query_response_raw.json()
         except Exception: return {"status": "error", "message": "Query API Error"}
             
         flowid = query_result.get('flowid') or query_result.get('data', {}).get('flowid')
@@ -304,25 +303,25 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
             real_error = query_result.get('msg') or query_result.get('message') or ""
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
                 print("⚠️ Cookie expired. Starting Auto-Login...")
-                success = auto_login_and_get_cookie()
+                success = await auto_login_and_get_cookie()
                 if success: return {"status": "error", "message": "Session renewed. Please enter the command again."}
                 else: return {"status": "error", "message": "❌ Auto-Login failed. Please provide /setcookie again."}
             return {"status": "error", "message": "❌ **Invalid Account:**\nAccount is ban server."}
 
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
-        pay_response = scraper.post(pay_url, data=pay_data, headers=headers)
-        pay_text = pay_response.text.lower()
+        pay_response_raw = await asyncio.to_thread(scraper.post, pay_url, data=pay_data, headers=headers)
+        pay_text = pay_response_raw.text.lower()
         
         if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
             return {"status": "error", "message": "Insufficient balance in the Main account."}
         
-        time.sleep(2) 
+        await asyncio.sleep(2) 
         real_order_id = "Not found"
         is_success = False
 
         try:
-            hist_res = scraper.get(order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
-            hist_json = hist_res.json()
+            hist_res_raw = await asyncio.to_thread(scraper.get, order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
+            hist_json = hist_res_raw.json()
             if 'list' in hist_json and len(hist_json['list']) > 0:
                 for order in hist_json['list']:
                     if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
@@ -334,7 +333,7 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
 
         if not is_success:
             try:
-                pay_json = pay_response.json()
+                pay_json = pay_response_raw.json()
                 code = str(pay_json.get('code', ''))
                 msg = str(pay_json.get('msg', '')).lower()
                 if code in ['200', '0', '1'] or 'success' in msg: is_success = True
@@ -346,15 +345,15 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
         else:
             err_msg = "Payment failed."
             try:
-                err_json = pay_response.json()
+                err_json = pay_response_raw.json()
                 if 'msg' in err_json: err_msg = f"Payment failed. ({err_json['msg']})"
             except: pass
             return {"status": "error", "message": err_msg}
 
     except Exception as e: return {"status": "error", "message": f"System Error: {str(e)}"}
 
-# 🌟 NEW: 3.1 MAGIC CHESS SCRAPER FUNCTION 🌟
-def process_mcc_order(game_id, zone_id, product_id):
+# 🌟 NEW: 3.1 MAGIC CHESS SCRAPER FUNCTION [FULLY ASYNC] 🌟
+async def process_mcc_order(game_id, zone_id, product_id):
     scraper = get_main_scraper()
 
     main_url = 'https://www.smile.one/br/merchant/game/magicchessgogo'
@@ -371,7 +370,7 @@ def process_mcc_order(game_id, zone_id, product_id):
     }
 
     try:
-        response = scraper.get(main_url, headers=headers)
+        response = await asyncio.to_thread(scraper.get, main_url, headers=headers)
         if response.status_code in [403, 503] or "cloudflare" in response.text.lower():
              return {"status": "error", "message": "Blocked by Cloudflare."}
 
@@ -386,18 +385,18 @@ def process_mcc_order(game_id, zone_id, product_id):
         if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Add a new Cookie using /setcookie."}
 
         check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
-        role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
+        role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
         try:
-            role_result = role_response.json()
+            role_result = role_response_raw.json()
             ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
             if not ig_name or str(ig_name).strip() == "":
                 return {"status": "error", "message": " Account not found."}
         except Exception: return {"status": "error", "message": "⚠️ Check Role API Error: Cannot verify account."}
 
         query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
-        query_response = scraper.post(query_url, data=query_data, headers=headers)
+        query_response_raw = await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
         
-        try: query_result = query_response.json()
+        try: query_result = query_response_raw.json()
         except Exception: return {"status": "error", "message": "Query API Error"}
             
         flowid = query_result.get('flowid') or query_result.get('data', {}).get('flowid')
@@ -406,25 +405,25 @@ def process_mcc_order(game_id, zone_id, product_id):
             real_error = query_result.get('msg') or query_result.get('message') or ""
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
                 print("⚠️ Cookie expired. Starting Auto-Login...")
-                success = auto_login_and_get_cookie()
+                success = await auto_login_and_get_cookie()
                 if success: return {"status": "error", "message": "⚠️ Session renewed. Please enter the command again."}
                 else: return {"status": "error", "message": "Auto-Login failed. Please provide /setcookie again."}
             return {"status": "error", "message": "Invalid account or unable to purchase."}
 
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
-        pay_response = scraper.post(pay_url, data=pay_data, headers=headers)
-        pay_text = pay_response.text.lower()
+        pay_response_raw = await asyncio.to_thread(scraper.post, pay_url, data=pay_data, headers=headers)
+        pay_text = pay_response_raw.text.lower()
         
         if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
             return {"status": "error", "message": "Insufficient balance in the Main account."}
         
-        time.sleep(2) 
+        await asyncio.sleep(2) 
         real_order_id = "Not found"
         is_success = False
 
         try:
-            hist_res = scraper.get(order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
-            hist_json = hist_res.json()
+            hist_res_raw = await asyncio.to_thread(scraper.get, order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
+            hist_json = hist_res_raw.json()
             if 'list' in hist_json and len(hist_json['list']) > 0:
                 for order in hist_json['list']:
                     if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
@@ -436,7 +435,7 @@ def process_mcc_order(game_id, zone_id, product_id):
 
         if not is_success:
             try:
-                pay_json = pay_response.json()
+                pay_json = pay_response_raw.json()
                 code = str(pay_json.get('code', ''))
                 msg = str(pay_json.get('msg', '')).lower()
                 if code in ['200', '0', '1'] or 'success' in msg: is_success = True
@@ -448,7 +447,7 @@ def process_mcc_order(game_id, zone_id, product_id):
         else:
             err_msg = "Payment failed."
             try:
-                err_json = pay_response.json()
+                err_json = pay_response_raw.json()
                 if 'msg' in err_json: err_msg = f"Payment failed. ({err_json['msg']})"
             except: pass
             return {"status": "error", "message": err_msg}
@@ -475,7 +474,7 @@ async def add_reseller(client, message: Message):
     target_id = parts[1].strip()
     if not target_id.isdigit(): return await message.reply("Please enter the User ID in numbers only.")
         
-    if db.add_reseller(target_id, f"User_{target_id}"):
+    if await asyncio.to_thread(db.add_reseller, target_id, f"User_{target_id}"):
         await message.reply(f"✅ Reseller ID `{target_id}` has been approved.")
     else:
         await message.reply(f"Reseller ID `{target_id}` is already in the list.")
@@ -489,7 +488,7 @@ async def remove_reseller(client, message: Message):
     target_id = parts[1].strip()
     if target_id == str(OWNER_ID): return await message.reply("The Owner cannot be removed.")
         
-    if db.remove_reseller(target_id):
+    if await asyncio.to_thread(db.remove_reseller, target_id):
         await message.reply(f"✅ Reseller ID `{target_id}` has been removed.")
     else:
         await message.reply("That ID is not in the list.")
@@ -497,7 +496,7 @@ async def remove_reseller(client, message: Message):
 @app.on_message(filters.command("users"))
 async def list_resellers(client, message: Message):
     if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
-    resellers_list = db.get_all_resellers()
+    resellers_list = await asyncio.to_thread(db.get_all_resellers)
     user_list = []
     
     for r in resellers_list:
@@ -513,7 +512,7 @@ async def set_cookie_command(client, message: Message):
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2: return await message.reply("⚠️ **Usage format:**\n`/setcookie <Long_Main_Cookie>`")
     
-    db.update_main_cookie(parts[1].strip())
+    await asyncio.to_thread(db.update_main_cookie, parts[1].strip())
     await message.reply("✅ **Main Cookie has been successfully updated securely.**")
 
 ##################################################
@@ -547,7 +546,7 @@ async def handle_raw_cookie_dump(client, message: Message):
         if did_match:
             formatted_cookie += f" _did={did_match.group(1)};"
 
-        db.update_main_cookie(formatted_cookie)
+        await asyncio.to_thread(db.update_main_cookie, formatted_cookie)
             
         response_msg = f"✅ **Smart Cookie Parser: Success!**\n\n"
         response_msg += f"🍪 **Saved Cookie:**\n`{formatted_cookie}`"
@@ -564,7 +563,7 @@ async def check_balance_command(client, message: Message):
     if not is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     tg_id = str(message.from_user.id)
-    user_wallet = db.get_reseller(tg_id)
+    user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
     if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
     report = f"💳 Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
@@ -576,7 +575,7 @@ async def check_balance_command(client, message: Message):
         scraper = get_main_scraper()
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
-            balances = get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
+            balances = await get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
             report += f"\n\n💳 **Oғғɪᴄɪᴀʟ ᴀᴄᴄᴏᴜɴᴛ-ʙᴀʟᴀɴᴄᴇ:**\n"
             report += f"ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('br_balance', 0.00):,.2f}\n"
             report += f"ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('ph_balance', 0.00):,.2f}"
@@ -599,7 +598,7 @@ async def send_order_history(client, message: Message):
     tg_id = str(message.from_user.id)
     user_name = message.from_user.username or message.from_user.first_name
     
-    history_data = db.get_user_history(tg_id, limit=5)
+    history_data = await asyncio.to_thread(db.get_user_history, tg_id, limit=5)
     
     if not history_data:
         return await message.reply("📜 **No Order History Found.**")
@@ -637,14 +636,14 @@ async def handle_topup(client, message: Message):
     
     loading_msg = await message.reply(f"Checking Code `{activation_code}`...")
     
-    with transaction_lock:
+    async with transaction_lock:
         scraper = get_main_scraper()
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         }
         
-        def try_redeem(api_type):
+        async def try_redeem(api_type):
             if api_type == 'PH':
                 page_url = 'https://www.smile.one/ph/customer/activationcode'
                 check_url = 'https://www.smile.one/ph/smilecard/pay/checkcard'
@@ -664,7 +663,7 @@ async def handle_topup(client, message: Message):
             req_headers['Referer'] = base_referer
 
             try:
-                res = scraper.get(page_url, headers=req_headers)
+                res = await asyncio.to_thread(scraper.get, page_url, headers=req_headers)
                 if "login" in res.url.lower(): return "expired", None
 
                 soup = BeautifulSoup(res.text, 'html.parser')
@@ -675,21 +674,19 @@ async def handle_topup(client, message: Message):
                 ajax_headers = req_headers.copy()
                 ajax_headers.update({'X-Requested-With': 'XMLHttpRequest', 'Origin': base_origin, 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
 
-                check_res = scraper.post(check_url, data={'_csrf': csrf_token, 'pin': activation_code}, headers=ajax_headers).json()
+                check_res_raw = await asyncio.to_thread(scraper.post, check_url, data={'_csrf': csrf_token, 'pin': activation_code}, headers=ajax_headers)
+                check_res = check_res_raw.json()
                 code_status = str(check_res.get('code', check_res.get('status', '')))
                 
                 if code_status in ['200', '201', '0', '1'] or 'success' in str(check_res.get('msg', '')).lower():
-                    # Here we can't await inside non-async func, better keep it as return status
-                    # Or we convert try_redeem to async 
-                    pass
-                    
-                    old_bal = get_smile_balance(scraper, headers, balance_check_url)
-                    pay_res = scraper.post(pay_url, data={'_csrf': csrf_token, 'sec': activation_code}, headers=ajax_headers).json()
+                    old_bal = await get_smile_balance(scraper, headers, balance_check_url)
+                    pay_res_raw = await asyncio.to_thread(scraper.post, pay_url, data={'_csrf': csrf_token, 'sec': activation_code}, headers=ajax_headers)
+                    pay_res = pay_res_raw.json()
                     pay_status = str(pay_res.get('code', pay_res.get('status', '')))
                     
                     if pay_status in ['200', '0', '1'] or 'success' in str(pay_res.get('msg', '')).lower():
-                        time.sleep(5) 
-                        new_bal = get_smile_balance(scraper, headers, balance_check_url)
+                        await asyncio.sleep(5) 
+                        new_bal = await get_smile_balance(scraper, headers, balance_check_url)
                         added = round(new_bal['br_balance' if api_type == 'BR' else 'ph_balance'] - old_bal['br_balance' if api_type == 'BR' else 'ph_balance'], 2)
                         return "success", added
                     else:
@@ -700,11 +697,11 @@ async def handle_topup(client, message: Message):
             except Exception as e:
                 return "error", str(e)
 
-        status, result = try_redeem('BR')
+        status, result = await try_redeem('BR')
         active_region = 'BR'
         
         if status in ['invalid', 'fail']: 
-            status, result = try_redeem('PH')
+            status, result = await try_redeem('PH')
             active_region = 'PH'
 
         if status == "expired":
@@ -736,13 +733,13 @@ async def handle_topup(client, message: Message):
                     fee_amount = round(added_amount * (fee_percent / 100), 2)
                     net_added = round(added_amount - fee_amount, 2)
             
-                user_wallet = db.get_reseller(tg_id)
+                user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
                 if active_region == 'BR':
                     assets = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
-                    db.update_balance(tg_id, br_amount=net_added)
+                    await asyncio.to_thread(db.update_balance, tg_id, br_amount=net_added)
                 else:
                     assets = user_wallet.get('ph_balance', 0.0) if user_wallet else 0.0
-                    db.update_balance(tg_id, ph_amount=net_added)
+                    await asyncio.to_thread(db.update_balance, tg_id, ph_amount=net_added)
 
                 total_assets = assets + net_added
                 
@@ -787,7 +784,7 @@ async def handle_check_role(client, message: Message):
     headers = {'X-Requested-With': 'XMLHttpRequest', 'Referer': main_url, 'Origin': 'https://www.smile.one'}
 
     try:
-        res = scraper.get(main_url, headers=headers)
+        res = await asyncio.to_thread(scraper.get, main_url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
         
         csrf_token = None
@@ -801,10 +798,10 @@ async def handle_check_role(client, message: Message):
             return await loading_msg.edit("❌ CSRF Token not found. Add a new Cookie using /setcookie.")
 
         check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
-        role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
+        role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
         
         try: 
-            role_result = role_response.json()
+            role_result = role_response_raw.json()
         except: 
             return await loading_msg.edit("❌ Cannot verify. (Smile API Error)")
             
@@ -828,9 +825,9 @@ async def handle_check_role(client, message: Message):
                 'referer': 'https://pizzoshop.com/mlchecker',
                 'user-agent': 'Mozilla/5.0'
             }
-            scraper.get("https://pizzoshop.com/mlchecker", headers=pizzo_headers, timeout=10)
-            pizzo_res = scraper.post("https://pizzoshop.com/mlchecker/check", data={'user_id': game_id, 'zone_id': zone_id}, headers=pizzo_headers, timeout=15)
-            pizzo_soup = BeautifulSoup(pizzo_res.text, 'html.parser')
+            await asyncio.to_thread(scraper.get, "https://pizzoshop.com/mlchecker", headers=pizzo_headers, timeout=10)
+            pizzo_res_raw = await asyncio.to_thread(scraper.post, "https://pizzoshop.com/mlchecker/check", data={'user_id': game_id, 'zone_id': zone_id}, headers=pizzo_headers, timeout=15)
+            pizzo_soup = BeautifulSoup(pizzo_res_raw.text, 'html.parser')
             table = pizzo_soup.find('table', class_='table-modern')
             
             if table:
@@ -863,7 +860,7 @@ async def handle_direct_buy(client, message: Message):
         telegram_user = message.from_user.username
         username_display = f"@{telegram_user}" if telegram_user else tg_id
         
-        with transaction_lock: 
+        async with transaction_lock: 
             for line in lines:
                 line = line.strip()
                 if not line: continue 
@@ -901,13 +898,13 @@ async def handle_direct_buy(client, message: Message):
                 items_to_buy = active_packages[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                user_wallet = db.get_reseller(tg_id)
+                user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
                 user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
                 
                 if user_v_bal < total_required_price:
                     error_text = (
                         f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\n"
-                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
+                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
                         f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency_name}"
                     )
                     await message.reply(error_text)
@@ -924,7 +921,7 @@ async def handle_direct_buy(client, message: Message):
                 first_order = True
                 
                 for item in items_to_buy:
-                    result = process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
+                    result = await process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
                     
                     if result['status'] == 'success':
                         if first_order:
@@ -935,7 +932,7 @@ async def handle_direct_buy(client, message: Message):
                         total_spent += item['price']
                         order_ids_str += f"{result['order_id']}\n" 
                         
-                        time.sleep(random.randint(2, 5)) 
+                        await asyncio.sleep(random.randint(2, 5)) 
                     else:
                         fail_count += 1
                         error_msg = result['message']
@@ -946,16 +943,17 @@ async def handle_direct_buy(client, message: Message):
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
                     if currency_name == 'BR':
-                        db.update_balance(tg_id, br_amount=-total_spent)
+                        await asyncio.to_thread(db.update_balance, tg_id, br_amount=-total_spent)
                     else:
-                        db.update_balance(tg_id, ph_amount=-total_spent)
+                        await asyncio.to_thread(db.update_balance, tg_id, ph_amount=-total_spent)
                     
-                    new_wallet = db.get_reseller(tg_id)
+                    new_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
                     new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
 
                     final_order_ids = order_ids_str.strip().replace('\n', ', ')
                     
-                    db.save_order(
+                    await asyncio.to_thread(
+                        db.save_order,
                         tg_id=tg_id,
                         game_id=game_id,
                         zone_id=zone_id,
@@ -1009,7 +1007,7 @@ async def handle_mcc_buy(client, message: Message):
         telegram_user = message.from_user.username
         username_display = f"@{telegram_user}" if telegram_user else tg_id
         
-        with transaction_lock:
+        async with transaction_lock:
             for line in lines:
                 line = line.strip()
                 if not line: continue 
@@ -1031,13 +1029,13 @@ async def handle_mcc_buy(client, message: Message):
                 items_to_buy = MCC_PACKAGES[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                user_wallet = db.get_reseller(tg_id)
+                user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
                 user_v_bal = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
                 
                 if user_v_bal < total_required_price:
                     error_text = (
                         f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\n"
-                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} BR\n"
+                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄ ᴀᴍᴏᴜɴᴛ: {total_required_price} BR\n"
                         f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} BR"
                     )
                     await message.reply(error_text)
@@ -1054,7 +1052,7 @@ async def handle_mcc_buy(client, message: Message):
                 first_order = True
                 
                 for item in items_to_buy:
-                    result = process_mcc_order(game_id, zone_id, item['pid'])
+                    result = await process_mcc_order(game_id, zone_id, item['pid'])
                     
                     if result['status'] == 'success':
                         if first_order:
@@ -1065,7 +1063,7 @@ async def handle_mcc_buy(client, message: Message):
                         total_spent += item['price']
                         order_ids_str += f"{result['order_id']}\n"
                         
-                        time.sleep(random.randint(5, 10)) 
+                        await asyncio.sleep(random.randint(5, 10)) 
                     else:
                         fail_count += 1
                         error_msg = result['message']
@@ -1075,14 +1073,15 @@ async def handle_mcc_buy(client, message: Message):
                     now = datetime.datetime.now(MMT)
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
-                    db.update_balance(tg_id, br_amount=-total_spent)
+                    await asyncio.to_thread(db.update_balance, tg_id, br_amount=-total_spent)
                     
-                    new_wallet = db.get_reseller(tg_id)
+                    new_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
                     new_v_bal = new_wallet.get('br_balance', 0.0) if new_wallet else 0.0
                     
                     final_order_ids = order_ids_str.strip().replace('\n', ', ')
                     
-                    db.save_order(
+                    await asyncio.to_thread(
+                        db.save_order,
                         tg_id=tg_id,
                         game_id=game_id,
                         zone_id=zone_id,
@@ -1229,27 +1228,29 @@ async def auto_calculator(client, message: Message):
         pass
 
 
-
 # ==========================================
-# 10. 💓 HEARTBEAT FUNCTION
+# 10. 💓 HEARTBEAT FUNCTION (ASYNC)
 # ==========================================
-def keep_cookie_alive():
+async def keep_cookie_alive():
     while True:
         try:
-            time.sleep(2 * 60) 
+            await asyncio.sleep(2 * 60) 
             scraper = get_main_scraper()
             headers = {
                 'User-Agent': 'Mozilla/5.0',
                 'X-Requested-With': 'XMLHttpRequest',
                 'Origin': 'https://www.smile.one'
             }
-            response = scraper.get('https://www.smile.one/customer/order', headers=headers)
+            # Network request သို့မဟုတ် Scraper များကို .to_thread ဖြင့် ခေါ်ရမည်
+            response = await asyncio.to_thread(scraper.get, 'https://www.smile.one/customer/order', headers=headers)
             if "login" not in response.url.lower() and response.status_code == 200:
                 print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 💓 Main Cookie is alive!")
             else:
                 print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}]  Main Cookie expired. Auto-login triggered.")
-                auto_login_and_get_cookie()
-        except: pass
+                await auto_login_and_get_cookie()
+        except Exception as e: 
+            print(f"Heartbeat Error: {e}")
+            pass
 
 
 # ==========================================
@@ -1301,7 +1302,7 @@ async def send_help_message(client, message: Message):
     await message.reply(help_text, parse_mode=ParseMode.HTML)
 
 # ==========================================
-# 9. START BOT / DEFAULT COMMAND (FIXED)
+# 9. START BOT / DEFAULT COMMAND
 # ==========================================
 @app.on_message(filters.command("start"))
 async def send_welcome(client, message: Message):
@@ -1315,26 +1316,20 @@ async def send_welcome(client, message: Message):
             full_name = "User"
             
         safe_full_name = full_name.replace('<', '').replace('>', '')
-        username_display = f'<a href="tg://user?id={tg_id}">{safe_full_name}</a>'
+        username_display = f"<a href='tg://user?id={tg_id}'>{safe_full_name}</a>"
         
-        # 🟢 Pyrogram အတွက် <emoji id="..."> သုံးရပါမည်
-        EMOJI_1 = "5956355397366320202" # 🥺
-        EMOJI_2 = "5954097490109140119" # 👤
-        EMOJI_3 = "5958289678837746828" # 🆔
-        EMOJI_4 = "5956330306167376831" # 📊
-        EMOJI_5 = "5954078884310814346" # 📞
-
+        # 🟢 Premium Emoji မရသော Bot များအတွက် သာမန် Standard Emoji များသာ သုံးထားသည်
         if is_authorized(message):
             status = "🟢 Aᴄᴛɪᴠᴇ"
         else:
             status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
             
         welcome_text = (
-            f"ʜᴇʏ ʙᴀʙʏ <emoji id='{EMOJI_1}'>🥺</emoji>\n\n"
-            f"<emoji id='{EMOJI_2}'>👤</emoji> Usᴇʀɴᴀᴍᴇ: {username_display}\n"
-            f"<emoji id='{EMOJI_3}'>🆔</emoji> 𝐈𝐃: <code>{tg_id}</code>\n"
-            f"<emoji id='{EMOJI_4}'>📊</emoji> Sᴛᴀᴛᴜs: {status}\n\n"
-            f"<emoji id='{EMOJI_5}'>📞</emoji> Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+            f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n"
+            f"👤 Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+            f"🆔 𝐈𝐃: <code>{tg_id}</code>\n"
+            f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
+            f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
         
         await message.reply(welcome_text, parse_mode=ParseMode.HTML)
@@ -1345,19 +1340,22 @@ async def send_welcome(client, message: Message):
         fallback_text = (
             f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n"
             f"👤 Usᴇʀɴᴀᴍᴇ: {full_name}\n"
-            f"🆔 𝐈𝐃: `{tg_id}`\n"
+            f"🆔 𝐈𝐃: <code>{tg_id}</code>\n"
             f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
             f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
-        await message.reply(fallback_text)
+        await message.reply(fallback_text, parse_mode=ParseMode.HTML)
 
 
 # ==========================================
-# 10. RUN BOT
+# 10. RUN BOT & BACKGROUND TASKS
 # ==========================================
 if __name__ == '__main__':
-    print("Starting Heartbeat & Auto-login thread...")
-    threading.Thread(target=keep_cookie_alive, daemon=True).start()
+    # 1. Background Task ဖြစ်သော heartbeat ကို Pyrogram Event Loop ထဲ ထည့်ပေးမည်
+    loop = asyncio.get_event_loop()
+    loop.create_task(keep_cookie_alive())
 
-    print("Bot is successfully running (With Pyrogram, MongoDB Virtual Wallet & Magic Chess System)...")
+    print("Bot is successfully running (Fully Optimized Asyncio & Pyrogram)...")
+    
+    # 2. Pyrogram ကို စတင် Run မည်
     app.run()

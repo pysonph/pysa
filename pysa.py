@@ -2,6 +2,7 @@ import os
 import telebot
 import re
 import datetime
+#from pyrogram.enums import ParseMode
 import cloudscraper
 from bs4 import BeautifulSoup
 import json
@@ -24,14 +25,14 @@ FB_EMAIL = os.getenv('FB_EMAIL')
 FB_PASS = os.getenv('FB_PASS')
 
 if not BOT_TOKEN:
-    print("❌ Error: .env ဖိုင်ထဲတွင် BOT_TOKEN မပါဝင်ပါ။")
+    print("❌ Error: BOT_TOKEN is missing in the .env file.")
     exit()
 
 MMT = datetime.timezone(datetime.timedelta(hours=6, minutes=30))
 bot = telebot.TeleBot(BOT_TOKEN)
 transaction_lock = threading.Lock()
 
-# Owner အကောင့်ကို Database ထဲ အစပြုပေးမည်
+# Initialize Owner account in Database
 db.init_owner(OWNER_ID)
 
 # ==========================================
@@ -56,10 +57,10 @@ def get_main_scraper():
 # ==========================================
 def auto_login_and_get_cookie():
     if not FB_EMAIL or not FB_PASS:
-        print("❌ .env တွင် FB_EMAIL နှင့် FB_PASS မရှိပါ။")
+        print("❌ FB_EMAIL and FB_PASS are missing in .env.")
         return False
         
-    print("Facebook ဖြင့် Auto-Login ဝင်ပြီး Cookie အသစ် ရှာဖွေနေပါသည်...")
+    print("Logging in with Facebook to fetch new Cookie...")
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
@@ -91,7 +92,7 @@ def auto_login_and_get_cookie():
             
             try:
                 page.wait_for_url("**/customer/order**", timeout=30000)
-                print("✅ Auto-Login အောင်မြင်ပါသည်။ Cookie ကို သိမ်းဆည်းနေပါသည်...")
+                print("✅ Auto-Login successful. Saving Cookie...")
                 
                 cookies = context.cookies()
                 cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
@@ -101,52 +102,55 @@ def auto_login_and_get_cookie():
                 browser.close()
                 return True
             except Exception as wait_e:
-                print(f"❌ Order စာမျက်နှာသို့ မရောက်ပါ။ (Facebook Checkpoint ဖြစ်နိုင်ပါသည်): {wait_e}")
+                print(f"❌ Did not reach the Order page. (Possible Facebook Checkpoint): {wait_e}")
                 browser.close()
                 return False
             
     except Exception as e:
-        print(f"❌ Auto-Login ပြုလုပ်ရာတွင် အမှားဖြစ်နေပါသည်: {e}")
+        print(f"❌ Error during Auto-Login: {e}")
         return False
 
 # ==========================================
 # 📌 PACKAGES
 # ==========================================
+DOUBLE_DIAMOND_PACKAGES = {
+    '55': [{'pid': '22590', 'price': 39.0, 'name': '50+50 💎'}],
+    '165': [{'pid': '22591', 'price': 116.9, 'name': '150+150 💎'}],
+    '275': [{'pid': '22592', 'price': 187.5, 'name': '250+250 💎'}],
+    '565': [{'pid': '22593', 'price': 385, 'name': '500+500 💎'}],
+}
+
 BR_PACKAGES = {
     '86': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}],
-    '172': [{'pid': '23', 'price': 122.00, 'name': '172 💎'}],
+    '172': [{'pid': '23', 'price': 122.0, 'name': '172 💎'}],
     '257': [{'pid': '25', 'price': 177.5, 'name': '257 💎'}],
-    '706': [{'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '2195': [{'pid': '27', 'price': 1453.00, 'name': '2195 💎'}],
-    '3688': [{'pid': '28', 'price': 2424.00, 'name': '3688 💎'}],
-    '5532': [{'pid': '29', 'price': 3660.00, 'name': '5532 💎'}],
-    '9288': [{'pid': '30', 'price': 6079.00, 'name': '9288 💎'}],
-    'B50': [{'pid': '22590', 'price': 39.0, 'name': '50+50 💎'}],
-    'B150': [{'pid': '22591', 'price': 116.9, 'name': '150+150 💎'}],
-    'B250': [{'pid': '22592', 'price': 187.5, 'name': '250+250 💎'}],
-    'B500': [{'pid': '22593', 'price': 385, 'name': '500+500 💎'}],
-    '600': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}],
     '343': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}],
-    '429': [{'pid': '23', 'price': 122.00, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}],
+    '429': [{'pid': '23', 'price': 122.0, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}],
     '514': [{'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}],
-    '878': [{'pid': '23', 'price': 122.00, 'name': '172 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '963': [{'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '1049': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '1135': [{'pid': '23', 'price': 122.00, 'name': '172 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '1412': [{'pid': '26', 'price': 480.00, 'name': '706 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '1584': [{'pid': '23', 'price': 122.00, 'name': '172 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '1755': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '2538': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '27', 'price': 1453.00, 'name': '2195 💎'}],
-    '2901': [{'pid': '27', 'price': 1453.00, 'name': '2195 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}],
-    '3244': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.00, 'name': '706 💎'}, {'pid': '27', 'price': 1453.00, 'name': '2195 💎'}],
-    'elite': [{'pid': '26555', 'price': 39.00, 'name': 'Elite Weekly Paackage'}],
-    'epic': [{'pid': '26556', 'price': 196.5, 'name': 'Epic Monthly Package'}],
+    '600': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}],
+    '706': [{'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '878': [{'pid': '23', 'price': 122.0, 'name': '172 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '963': [{'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '1049': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '1135': [{'pid': '23', 'price': 122.0, 'name': '172 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '1412': [{'pid': '26', 'price': 480.0, 'name': '706 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '1584': [{'pid': '23', 'price': 122.0, 'name': '172 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '1755': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '2195': [{'pid': '27', 'price': 1453.0, 'name': '2195 💎'}],
+    '2538': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '27', 'price': 1453.0, 'name': '2195 💎'}],
+    '2901': [{'pid': '27', 'price': 1453.0, 'name': '2195 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}],
+    '3244': [{'pid': '13', 'price': 61.5, 'name': '86 💎'}, {'pid': '25', 'price': 177.5, 'name': '257 💎'}, {'pid': '26', 'price': 480.0, 'name': '706 💎'}, {'pid': '27', 'price': 1453.0, 'name': '2195 💎'}],
+    '3688': [{'pid': '28', 'price': 2424.0, 'name': '3688 💎'}],
+    '5532': [{'pid': '29', 'price': 3660.0, 'name': '5532 💎'}],
+    '9288': [{'pid': '30', 'price': 6079.0, 'name': '9288 💎'}],
+    'meb': [{'pid': '26556', 'price': 196.5, 'name': 'Epic Monthly Package'}],
     'tp': [{'pid': '33', 'price': 402.5, 'name': 'Twilight Passage'}],
-    'wp': [{'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp2': [{'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp3': [{'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp4': [{'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp5': [{'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.00, 'name': 'Weekly Pass'}],
+    'web': [{'pid': '26555', 'price': 39.0, 'name': 'Elite Weekly Paackage'}],
+    'wp': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp2': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp3': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp4': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp5': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
 }
 
 PH_PACKAGES = {
@@ -158,43 +162,43 @@ PH_PACKAGES = {
 }
 
 MCC_PACKAGES = {
-    '86': [{'pid': '23825', 'price': 62.50, 'name': '86 💎'}],
-    '172': [{'pid': '23826', 'price': 125.00, 'name': '172 💎'}],
-    '257': [{'pid': '23827', 'price': 187.00, 'name': '257 💎'}],
+    '86': [{'pid': '23825', 'price': 62.5, 'name': '86 💎'}],
+    '172': [{'pid': '23826', 'price': 125.0, 'name': '172 💎'}],
+    '257': [{'pid': '23827', 'price': 187.0, 'name': '257 💎'}],
     '343': [{'pid': '23828', 'price': 250.0, 'name': '343 💎'}],
+    '429': [{'pid': '23826', 'price': 122.0, 'name': '172 💎'}, {'pid': '23827', 'price': 187.0, 'name': '257 💎'}],
     '516': [{'pid': '23829', 'price': 375.0, 'name': '516 💎'}],
-    '706': [{'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '1346': [{'pid': '23831', 'price': 937.50, 'name': '1346 💎'}],
-    '1825': [{'pid': '23832', 'price': 1250.00, 'name': '1825 💎'}],
-    '2195': [{'pid': '23833', 'price': 1500.00, 'name': '2195 💎'}],
-    '3688': [{'pid': '23834', 'price': 2500.00, 'name': '3688 💎'}],
-    '5532': [{'pid': '23835', 'price': 3750.00, 'name': '5532 💎'}],
-    '9288': [{'pid': '23836', 'price': 6250.00, 'name': '9288 💎'}],
-    'B50': [{'pid': '23837', 'price': 40.0, 'name': '50+50 💎'}],
-    'B150': [{'pid': '23838', 'price': 120.0, 'name': '150+150 💎'}],
-    'B250': [{'pid': '23839', 'price': 200.0, 'name': '250+250 💎'}],
-    'B500': [{'pid': '23840', 'price': 400, 'name': '500+500 💎'}],
-    '429': [{'pid': '23826', 'price': 122.00, 'name': '172 💎'}, {'pid': '23827', 'price': 187.00, 'name': '257 💎'}],
-    '600': [{'pid': '23825', 'price': 62.50, 'name': '86 💎'}, {'pid': '23827', 'price': 187.00, 'name': '257 💎'}, {'pid': '23827', 'price': 177.5, 'name': '257 💎'}],
-    '878': [{'pid': '23826', 'price': 125.00, 'name': '172 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '963': [{'pid': '23827', 'price': 187.00, 'name': '257 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '1049': [{'pid': '23825', 'price': 62.50, 'name': '86 💎'}, {'pid': '23827', 'price': 187.00, 'name': '257 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '1135': [{'pid': '23826', 'price': 125.00, 'name': '172 💎'}, {'pid': '23827', 'price': 187.00, 'name': '257 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '1412': [{'pid': '23830', 'price': 500.00, 'name': '706 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '1584': [{'pid': '23826', 'price': 125.00, 'name': '172 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}, {'pid': '23830', 'price': 480.00, 'name': '706 💎'}],
-    '1755': [{'pid': '23825', 'price': 62.50, 'name': '86 💎'}, {'pid': '23827', 'price': 187.00, 'name': '257 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '2538': [{'pid': '23825', 'price': 62.50, 'name': '86 💎'}, {'pid': '23827', 'price': 187.00, 'name': '257 💎'}, {'pid': '23833', 'price': 1500.00, 'name': '2195 💎'}],
-    '2901': [{'pid': '23833', 'price': 1500.00, 'name': '2195 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}],
-    '3244': [{'pid': '23825', 'price': 62.50, 'name': '86 💎'}, {'pid': '23827', 'price': 187.00, 'name': '257 💎'}, {'pid': '23830', 'price': 500.00, 'name': '706 💎'}, {'pid': '23833', 'price': 1500.00, 'name': '2195 💎'}],
-    'wp': [{'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp2': [{'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp3': [{'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp4': [{'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}],
-    'wp5': [{'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.00, 'name': 'Weekly Pass'}],
+    '600': [{'pid': '23825', 'price': 62.5, 'name': '86 💎'}, {'pid': '23827', 'price': 187.0, 'name': '257 💎'}, {'pid': '23827', 'price': 177.5, 'name': '257 💎'}],
+    '706': [{'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '878': [{'pid': '23826', 'price': 125.0, 'name': '172 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '963': [{'pid': '23827', 'price': 187.0, 'name': '257 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '1049': [{'pid': '23825', 'price': 62.5, 'name': '86 💎'}, {'pid': '23827', 'price': 187.0, 'name': '257 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '1135': [{'pid': '23826', 'price': 125.0, 'name': '172 💎'}, {'pid': '23827', 'price': 187.0, 'name': '257 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '1346': [{'pid': '23831', 'price': 937.5, 'name': '1346 💎'}],
+    '1412': [{'pid': '23830', 'price': 500.0, 'name': '706 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '1584': [{'pid': '23826', 'price': 125.0, 'name': '172 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}, {'pid': '23830', 'price': 480.0, 'name': '706 💎'}],
+    '1755': [{'pid': '23825', 'price': 62.5, 'name': '86 💎'}, {'pid': '23827', 'price': 187.0, 'name': '257 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '1825': [{'pid': '23832', 'price': 1250.0, 'name': '1825 💎'}],
+    '2195': [{'pid': '23833', 'price': 1500.0, 'name': '2195 💎'}],
+    '2538': [{'pid': '23825', 'price': 62.5, 'name': '86 💎'}, {'pid': '23827', 'price': 187.0, 'name': '257 💎'}, {'pid': '23833', 'price': 1500.0, 'name': '2195 💎'}],
+    '2901': [{'pid': '23833', 'price': 1500.0, 'name': '2195 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}],
+    '3244': [{'pid': '23825', 'price': 62.5, 'name': '86 💎'}, {'pid': '23827', 'price': 187.0, 'name': '257 💎'}, {'pid': '23830', 'price': 500.0, 'name': '706 💎'}, {'pid': '23833', 'price': 1500.0, 'name': '2195 💎'}],
+    '3688': [{'pid': '23834', 'price': 2500.0, 'name': '3688 💎'}],
+    '5532': [{'pid': '23835', 'price': 3750.0, 'name': '5532 💎'}],
+    '9288': [{'pid': '23836', 'price': 6250.0, 'name': '9288 💎'}],
+    'b150': [{'pid': '23838', 'price': 120.0, 'name': '150+150 💎'}],
+    'b250': [{'pid': '23839', 'price': 200.0, 'name': '250+250 💎'}],
+    'b50': [{'pid': '23837', 'price': 40.0, 'name': '50+50 💎'}],
+    'b500': [{'pid': '23840', 'price': 400, 'name': '500+500 💎'}],
+    'wp': [{'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp2': [{'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp3': [{'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp4': [{'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp5': [{'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '23841', 'price': 76.0, 'name': 'Weekly Pass'}],
 }
 
 # ==========================================
-# 2. BALANCE အစစ်ယူရန် FUNCTION
+# 2. FUNCTION TO GET REAL BALANCE
 # ==========================================
 def get_smile_balance(scraper, headers, balance_url='https://www.smile.one/customer/order'):
     balances = {'br_balance': 0.00, 'ph_balance': 0.00}
@@ -251,7 +255,7 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
     try:
         response = scraper.get(main_url, headers=headers)
         if response.status_code in [403, 503] or "cloudflare" in response.text.lower():
-             return {"status": "error", "message": "Cloudflare Block ထားပါသည်။"}
+             return {"status": "error", "message": "Blocked by Cloudflare."}
 
         soup = BeautifulSoup(response.text, 'html.parser')
         csrf_token = None
@@ -261,7 +265,7 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
             csrf_input = soup.find('input', {'name': '_csrf'})
             if csrf_input: csrf_token = csrf_input.get('value')
 
-        if not csrf_token: return {"status": "error", "message": "CSRF Token ရှာမတွေ့ပါ။ /setcookie ဖြင့် Cookie အသစ်ထည့်ပါ။"}
+        if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Add a new Cookie using /setcookie."}
 
         check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
         role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
@@ -269,9 +273,9 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
             role_result = role_response.json()
             ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
             if not ig_name or str(ig_name).strip() == "":
-                real_error = role_result.get('msg') or role_result.get('message') or "အကောင့်ရှာမတွေ့ပါ။"
-                return {"status": "error", "message": f"❌ အကောင့် မှားယွင်းနေပါသည်: {real_error}"}
-        except Exception: return {"status": "error", "message": "Check Role API Error: အကောင့်စစ်ဆေး၍မရပါ။"}
+                real_error = role_result.get('msg') or role_result.get('message') or "Account not found."
+                return {"status": "error", "message": f"❌ Invalid Account: {real_error}"}
+        except Exception: return {"status": "error", "message": "Check Role API Error: Cannot verify account."}
 
         query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
         query_response = scraper.post(query_url, data=query_data, headers=headers)
@@ -284,21 +288,21 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
         if not flowid:
             real_error = query_result.get('msg') or query_result.get('message') or ""
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
-                print("⚠️ Cookie သက်တမ်းကုန်နေပါသည်။ Auto-Login ကို စတင်နေပါသည်...")
+                print("⚠️ Cookie expired. Starting Auto-Login...")
                 success = auto_login_and_get_cookie()
-                if success: return {"status": "error", "message": "Session အသစ်ပြန်ယူပြီးပါပြီ။ ကျေးဇူးပြု၍ Command ကို ထပ်မံရိုက်ထည့်ပါ။"}
-                else: return {"status": "error", "message": "❌ Auto-Login မအောင်မြင်ပါ။ /setcookie ကို ပြန်ထည့်ပေးပါ။"}
-            return {"status": "error", "message": "❌ **အကောင့် မှားယွင်းနေပါသည်:**\nAccount is ban server."}
+                if success: return {"status": "error", "message": "Session renewed. Please enter the command again."}
+                else: return {"status": "error", "message": "❌ Auto-Login failed. Please provide /setcookie again."}
+            return {"status": "error", "message": "❌ **Invalid Account:**\nAccount is ban server."}
 
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
         pay_response = scraper.post(pay_url, data=pay_data, headers=headers)
         pay_text = pay_response.text.lower()
         
         if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
-            return {"status": "error", "message": "Main အကောင့်တွင်လက်ကျန်ငွေမလုံလောက်ပါ။"}
+            return {"status": "error", "message": "Insufficient balance in the Main account."}
         
         time.sleep(2) 
-        real_order_id = "ရှာမတွေ့ပါ"
+        real_order_id = "Not found"
         is_success = False
 
         try:
@@ -308,7 +312,7 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
                 for order in hist_json['list']:
                     if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
                         if str(order.get('order_status', '')).lower() == 'success' or str(order.get('status')) == '1':
-                            real_order_id = str(order.get('increment_id', "ရှာမတွေ့ပါ"))
+                            real_order_id = str(order.get('increment_id', "Not found"))
                             is_success = True
                             break
         except Exception: pass
@@ -325,10 +329,10 @@ def process_smile_one_order(game_id, zone_id, product_id, currency_name):
         if is_success:
             return {"status": "success", "ig_name": ig_name, "order_id": real_order_id}
         else:
-            err_msg = "ငွေချေမှု မအောင်မြင်ပါ။"
+            err_msg = "Payment failed."
             try:
                 err_json = pay_response.json()
-                if 'msg' in err_json: err_msg = f"ငွေချေမှု မအောင်မြင်ပါ။ ({err_json['msg']})"
+                if 'msg' in err_json: err_msg = f"Payment failed. ({err_json['msg']})"
             except: pass
             return {"status": "error", "message": err_msg}
 
@@ -354,7 +358,7 @@ def process_mcc_order(game_id, zone_id, product_id):
     try:
         response = scraper.get(main_url, headers=headers)
         if response.status_code in [403, 503] or "cloudflare" in response.text.lower():
-             return {"status": "error", "message": "Cloudflare Block ထားပါသည်။"}
+             return {"status": "error", "message": "Blocked by Cloudflare."}
 
         soup = BeautifulSoup(response.text, 'html.parser')
         csrf_token = None
@@ -364,7 +368,7 @@ def process_mcc_order(game_id, zone_id, product_id):
             csrf_input = soup.find('input', {'name': '_csrf'})
             if csrf_input: csrf_token = csrf_input.get('value')
 
-        if not csrf_token: return {"status": "error", "message": "CSRF Token ရှာမတွေ့ပါ။ /setcookie ဖြင့် Cookie အသစ်ထည့်ပါ။"}
+        if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Add a new Cookie using /setcookie."}
 
         check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
         role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
@@ -372,8 +376,8 @@ def process_mcc_order(game_id, zone_id, product_id):
             role_result = role_response.json()
             ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
             if not ig_name or str(ig_name).strip() == "":
-                return {"status": "error", "message": " အကောင့် ရှာမတွေ့ပါ။"}
-        except Exception: return {"status": "error", "message": "⚠️ Check Role API Error: အကောင့်စစ်ဆေး၍မရပါ။"}
+                return {"status": "error", "message": " Account not found."}
+        except Exception: return {"status": "error", "message": "⚠️ Check Role API Error: Cannot verify account."}
 
         query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
         query_response = scraper.post(query_url, data=query_data, headers=headers)
@@ -386,21 +390,21 @@ def process_mcc_order(game_id, zone_id, product_id):
         if not flowid:
             real_error = query_result.get('msg') or query_result.get('message') or ""
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
-                print("⚠️ Cookie သက်တမ်းကုန်နေပါသည်။ Auto-Login ကို စတင်နေပါသည်...")
+                print("⚠️ Cookie expired. Starting Auto-Login...")
                 success = auto_login_and_get_cookie()
-                if success: return {"status": "error", "message": "⚠️ Session အသစ်ပြန်ယူပြီးပါပြီ။ ကျေးဇူးပြု၍ Command ကို ထပ်မံရိုက်ထည့်ပါ။"}
-                else: return {"status": "error", "message": "Auto-Login မအောင်မြင်ပါ။ /setcookie ကို ပြန်ထည့်ပေးပါ။"}
-            return {"status": "error", "message": "အကောင့် မှားယွင်းနေပါသည် သို့မဟုတ် ဝယ်ယူ၍မရပါ။"}
+                if success: return {"status": "error", "message": "⚠️ Session renewed. Please enter the command again."}
+                else: return {"status": "error", "message": "Auto-Login failed. Please provide /setcookie again."}
+            return {"status": "error", "message": "Invalid account or unable to purchase."}
 
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
         pay_response = scraper.post(pay_url, data=pay_data, headers=headers)
         pay_text = pay_response.text.lower()
         
         if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
-            return {"status": "error", "message": "Main အကောင့်တွင်လက်ကျန်မလုံလောက်ပါ။"}
+            return {"status": "error", "message": "Insufficient balance in the Main account."}
         
         time.sleep(2) 
-        real_order_id = "ရှာမတွေ့ပါ"
+        real_order_id = "Not found"
         is_success = False
 
         try:
@@ -410,7 +414,7 @@ def process_mcc_order(game_id, zone_id, product_id):
                 for order in hist_json['list']:
                     if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
                         if str(order.get('order_status', '')).lower() == 'success' or str(order.get('status')) == '1':
-                            real_order_id = str(order.get('increment_id', "ရှာမတွေ့ပါ"))
+                            real_order_id = str(order.get('increment_id', "Not found"))
                             is_success = True
                             break
         except Exception: pass
@@ -427,17 +431,17 @@ def process_mcc_order(game_id, zone_id, product_id):
         if is_success:
             return {"status": "success", "ig_name": ig_name, "order_id": real_order_id}
         else:
-            err_msg = "ငွေချေမှု မအောင်မြင်ပါ။"
+            err_msg = "Payment failed."
             try:
                 err_json = pay_response.json()
-                if 'msg' in err_json: err_msg = f"ငွေချေမှု မအောင်မြင်ပါ။ ({err_json['msg']})"
+                if 'msg' in err_json: err_msg = f"Payment failed. ({err_json['msg']})"
             except: pass
             return {"status": "error", "message": err_msg}
 
     except Exception as e: return {"status": "error", "message": f"System Error: {str(e)}"}
 
 # ==========================================
-# 4. 🛡️ AUTHORIZATION စစ်ဆေးရန် FUNCTION
+# 4. 🛡️ FUNCTION TO CHECK AUTHORIZATION
 # ==========================================
 def is_authorized(message):
     if message.from_user.id == OWNER_ID:
@@ -447,55 +451,113 @@ def is_authorized(message):
 # ==========================================
 # 5. RESELLER MANAGEMENT & COMMANDS
 # ==========================================
-@bot.message_handler(commands=['addreseller'])
+@bot.message_handler(commands=['add'])
 def add_reseller(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "သင်သည် Owner မဟုတ်ပါ။")
+    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "You are not the Owner.")
     parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "`/addreseller <user_id>`", parse_mode="Markdown")
+    if len(parts) < 2: return bot.reply_to(message, "`/add <user_id>`", parse_mode="Markdown")
         
     target_id = parts[1].strip()
-    if not target_id.isdigit(): return bot.reply_to(message, "User ID ကို ဂဏန်းဖြင့်သာ ထည့်ပါ။")
+    if not target_id.isdigit(): return bot.reply_to(message, "Please enter the User ID in numbers only.")
         
     if db.add_reseller(target_id, f"User_{target_id}"):
-        bot.reply_to(message, f"✅ Reseller ID `{target_id}` ခွင့်ပြုလိုက်ပါပြီ။", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ Reseller ID `{target_id}` has been approved.", parse_mode="Markdown")
     else:
-        bot.reply_to(message, f"⚠️ Reseller ID `{target_id}` သည် စာရင်းထဲတွင် ရှိပြီးသားဖြစ်ပါသည်။", parse_mode="Markdown")
+        bot.reply_to(message, f"Reseller ID `{target_id}` is already in the list.", parse_mode="Markdown")
 
-@bot.message_handler(commands=['removereseller'])
+@bot.message_handler(commands=['remove'])
 def remove_reseller(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "သင်သည် Owner မဟုတ်ပါ။")
+    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "You are not the Owner.")
     parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "အသုံးပြုရန် ပုံစံ - `/removereseller <user_id>`", parse_mode="Markdown")
+    if len(parts) < 2: return bot.reply_to(message, "Usage format - `/remove <user_id>`", parse_mode="Markdown")
         
     target_id = parts[1].strip()
-    if target_id == str(OWNER_ID): return bot.reply_to(message, "Owner ကို ပြန်ဖြုတ်၍ မရပါ။")
+    if target_id == str(OWNER_ID): return bot.reply_to(message, "The Owner cannot be removed.")
         
     if db.remove_reseller(target_id):
-        bot.reply_to(message, f"✅ Reseller ID `{target_id}` ကို ပိတ်လိုက်ပါပြီ။", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ Reseller ID `{target_id}` has been removed.", parse_mode="Markdown")
     else:
-        bot.reply_to(message, "ထို ID သည် စာရင်းထဲတွင် မရှိပါ။")
+        bot.reply_to(message, "That ID is not in the list.")
 
-@bot.message_handler(commands=['resellers'])
+@bot.message_handler(commands=['users'])
 def list_resellers(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "သင်သည် Owner မဟုတ်ပါ။")
+    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "You are not the Owner.")
     resellers_list = db.get_all_resellers()
     user_list = []
     
     for r in resellers_list:
-        role = "owner" if r["tg_id"] == str(OWNER_ID) else "reseller"
+        role = "owner" if r["tg_id"] == str(OWNER_ID) else "users"
         user_list.append(f"🟢 ID: `{r['tg_id']}` ({role})\n   BR: ${r.get('br_balance', 0.0)} | PH: ${r.get('ph_balance', 0.0)}")
             
-    final_text = "\n\n".join(user_list) if user_list else "No resellers found."
-    bot.reply_to(message, f"🟢 **ခွင့်ပြုထားသော Resellers စာရင်း (V-Wallet):**\n\n{final_text}", parse_mode="Markdown")
+    final_text = "\n\n".join(user_list) if user_list else "No users found."
+    bot.reply_to(message, f"🟢 **Approved users List (V-Wallet):**\n\n{final_text}", parse_mode="Markdown")
 
 @bot.message_handler(commands=['setcookie'])
 def set_cookie_command(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "❌ Owner သာလျှင် Cookie ထည့်သွင်းနိုင်ပါသည်။")
+    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "❌ Only the Owner can set the Cookie.")
     parts = message.text.split(maxsplit=1)
-    if len(parts) < 2: return bot.reply_to(message, "⚠️ **အသုံးပြုရန် ပုံစံ:**\n`/setcookie <Main_Cookie_အရှည်ကြီး>`", parse_mode="Markdown")
+    if len(parts) < 2: return bot.reply_to(message, "⚠️ **Usage format:**\n`/setcookie <Long_Main_Cookie>`", parse_mode="Markdown")
     
     db.update_main_cookie(parts[1].strip())
-    bot.reply_to(message, f"✅ **Main Cookie ကို လုံခြုံစွာ အသစ်ပြောင်းလဲလိုက်ပါပြီ။**", parse_mode="Markdown")
+    bot.reply_to(message, f"✅ **Main Cookie has been successfully updated securely.**", parse_mode="Markdown")
+
+##################################################
+
+# ==========================================
+# 🔌 SMART COOKIE PARSER (Auto Detect & Save)
+# ==========================================
+@bot.message_handler(func=lambda message: "PHPSESSID" in message.text and "cf_clearance" in message.text)
+def handle_raw_cookie_dump(message):
+    # 1. Owner စစ်ဆေးခြင်း
+    if message.from_user.id != OWNER_ID: 
+        return bot.reply_to(message, "❌ You are not the owner.")
+
+    text = message.text
+    
+    try:
+        # 2. Regex ဖြင့် လိုအပ်သော Cookie များကို ရှာဖွေခြင်း
+        # (Dictionary format ရော Raw Header format ရော နှစ်မျိုးလုံး ဖမ်းပေးပါမည်)
+        
+        # PHPSESSID ရှာခြင်း
+        phpsessid_match = re.search(r"['\"]?PHPSESSID['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
+        
+        # cf_clearance ရှာခြင်း
+        cf_clearance_match = re.search(r"['\"]?cf_clearance['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
+        
+        # __cf_bm (Optional)
+        cf_bm_match = re.search(r"['\"]?__cf_bm['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
+        
+        # _did (Optional)
+        did_match = re.search(r"['\"]?_did['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
+
+        if not phpsessid_match or not cf_clearance_match:
+            return bot.reply_to(message, " PHPSESSID နှင့် cf_clearance ကို ရှာမတွေ့ပါ။ Format မှန်ကန်ကြောင်း စစ်ဆေးပါ။")
+
+        # 3. တန်ဖိုးများ ထုတ်ယူခြင်း
+        val_php = phpsessid_match.group(1)
+        val_cf = cf_clearance_match.group(1)
+
+        # 4. Cookie String ပြန်လည် တည်ဆောက်ခြင်း
+        formatted_cookie = f"PHPSESSID={val_php}; cf_clearance={val_cf};"
+        
+        if cf_bm_match:
+            formatted_cookie += f" __cf_bm={cf_bm_match.group(1)};"
+        if did_match:
+            formatted_cookie += f" _did={did_match.group(1)};"
+
+        # 5. Database ထဲသို့ သိမ်းဆည်းခြင်း (db module ကို အသုံးပြုသည်)
+        db.update_main_cookie(formatted_cookie)
+            
+        # 6. User ကို ပြန်ပြောခြင်း
+        response_msg = f"✅ **Smart Cookie Parser: Success!**\n\n"
+        response_msg += f"🍪 **Saved Cookie:**\n`{formatted_cookie}`"
+        bot.reply_to(message, response_msg, parse_mode="Markdown")
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Parsing Error: {str(e)}")
+
+
+##################################################
 
 @bot.message_handler(commands=['balance'])
 def check_balance_command(message):
@@ -506,112 +568,214 @@ def check_balance_command(message):
     if not user_wallet: return bot.reply_to(message, "Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
     report = f"💳 Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
-    report += f"🇧🇷 ʙʀ-ʙᴀʟᴀɴᴄᴇ: ${user_wallet.get('br_balance', 0.0):,.2f}\n"
-    report += f"🇵🇭 ᴘʜ-ʙᴀʟᴀɴᴄᴇ: ${user_wallet.get('ph_balance', 0.0):,.2f}"
+    report += f"🇧🇷 ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('br_balance', 0.0):,.2f}\n"
+    report += f"🇵🇭 ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('ph_balance', 0.0):,.2f}"
     
     if message.from_user.id == OWNER_ID:
-        loading_msg = bot.reply_to(message, "official account လက်ကျန်ငွေ အစစ်ကိုပါ ဆွဲယူနေပါသည်...")
+        loading_msg = bot.reply_to(message, "Fetching real balance from the official account...")
         scraper = get_main_scraper()
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
             balances = get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
             report += f"\n\n💳 **Oғғɪᴄɪᴀʟ ᴀᴄᴄᴏᴜɴᴛ-ʙᴀʟᴀɴᴄᴇ:**\n"
-            report += f"ʙʀ-ʙᴀʟᴀɴᴄᴇ: ${balances.get('br_balance', 0.00):,.2f}\n"
-            report += f"ᴘʜ-ʙᴀʟᴀɴᴄᴇ: ${balances.get('ph_balance', 0.00):,.2f}"
+            report += f"ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('br_balance', 0.00):,.2f}\n"
+            report += f"ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('ph_balance', 0.00):,.2f}"
             bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="Markdown")
         except:
             bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
     else:
         bot.reply_to(message, report)
 
+
+
 # ==========================================
-# 6. 📌 VIRTUAL WALLET အတွက် ACTIVATION CODE
+# 📜 HISTORY COMMAND (.his / /history)
 # ==========================================
-@bot.message_handler(func=lambda message: re.match(r"(?i)^/(activecodebr|activecodeph)\b", message.text.strip()))
-def handle_activecode(message):
+@bot.message_handler(commands=['history'])
+@bot.message_handler(func=lambda message: message.text.strip().lower() == '.his')
+def send_order_history(message):
+    if not is_authorized(message):
+        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+
+    tg_id = str(message.from_user.id)
+    user_name = message.from_user.username or message.from_user.first_name
+    
+    # Database မှ နောက်ဆုံး 5 ခုကို ဆွဲထုတ်မည်
+    history_data = db.get_user_history(tg_id, limit=5)
+    
+    if not history_data:
+        return bot.reply_to(message, "📜 **No Order History Found.**", parse_mode="Markdown")
+
+    # Header
+    response_text = f"==== Order History for @{user_name} ====\n\n"
+    
+    # Loop through each order and format it
+    for order in history_data:
+        response_text += (
+            f"🆔 Game ID: {order['game_id']}\n"
+            f"🌏 Zone ID: {order['zone_id']}\n"
+            f"💎 Pack: {order['item_name']}\n"
+            f"🆔 Order ID: {order['order_id']}\n"
+            f"📅 Date: {order['date_str']}\n"
+            f"💲 Rate: ${order['price']:,.2f}\n"
+            f"📊 Status: {order['status']}\n"
+            f"────────────────\n"
+        )
+    
+    bot.reply_to(message, response_text)
+
+
+# ==========================================
+# 6. 📌 ACTIVATION CODE FOR VIRTUAL WALLET (.topup AUTO DETECT)
+# ==========================================
+@bot.message_handler(func=lambda message: re.match(r"(?i)^\.topup\s+([a-zA-Z0-9]+)", message.text.strip()))
+def handle_topup(message):
     if not is_authorized(message): return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
-    match = re.search(r"(?i)^/(activecodebr|activecodeph)\s+([a-zA-Z0-9]+)", message.text.strip())
-    if not match: return bot.reply_to(message, "⚠️ အသုံးပြုရန် ပုံစံ - `/activecodebr <Code>` သို့မဟုတ် `/activecodeph <Code>`", parse_mode="Markdown")
+    match = re.search(r"(?i)^\.topup\s+([a-zA-Z0-9]+)", message.text.strip())
+    if not match: return bot.reply_to(message, "Usage format - `.topup <Code>`")
     
-    command_used = match.group(1).lower()
-    activation_code = match.group(2).strip()
+    activation_code = match.group(1).strip()
     tg_id = str(message.from_user.id)
+    user_id_int = message.from_user.id  # Integer ID for comparison
     
-    if command_used == 'activecodeph':
-        page_url = 'https://www.smile.one/ph/customer/activationcode'
-        check_url = 'https://www.smile.one/ph/smilecard/pay/checkcard'
-        pay_url = 'https://www.smile.one/ph/smilecard/pay/payajax'
-        base_origin = 'https://www.smile.one'
-        base_referer = 'https://www.smile.one/ph/'
-        api_type = "PH"
-    else:
-        page_url = 'https://www.smile.one/customer/activationcode'
-        check_url = 'https://www.smile.one/smilecard/pay/checkcard'
-        pay_url = 'https://www.smile.one/smilecard/pay/payajax'
-        base_origin = 'https://www.smile.one'
-        base_referer = 'https://www.smile.one/'
-        api_type = "BR"
-
-    loading_msg = bot.reply_to(message, f"📊 {api_type} အတွက် သင့် Wallet သို့ Code `{activation_code}` သွင်းနေပါသည်...", parse_mode="Markdown")
+    loading_msg = bot.reply_to(message, f"Checking Code `{activation_code}`...")
     
     with transaction_lock:
         scraper = get_main_scraper()
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Referer': base_referer,
         }
         
-        balance_check_url = 'https://www.smile.one/ph/customer/order' if api_type == 'PH' else 'https://www.smile.one/customer/order'
-        old_bal = get_smile_balance(scraper, headers, balance_check_url)
-
-        try:
-            res = scraper.get(page_url, headers=headers)
-            if "login" in res.url.lower(): return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="ʏᴏᴜʀ ᴄᴏᴏᴋɪᴇs ɪs ᴇxᴘɪʀᴇᴅ.")
-
-            soup = BeautifulSoup(res.text, 'html.parser')
-            csrf_token = soup.find('meta', {'name': 'csrf-token'})
-            csrf_token = csrf_token.get('content') if csrf_token else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
-            if not csrf_token: return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ CSRF Token မရရှိပါ။")
-
-            ajax_headers = headers.copy()
-            ajax_headers.update({'X-Requested-With': 'XMLHttpRequest', 'Origin': base_origin, 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
-
-            check_res = scraper.post(check_url, data={'_csrf': csrf_token, 'pin': activation_code}, headers=ajax_headers).json()
-            code_status = str(check_res.get('code', check_res.get('status', '')))
-            
-            if code_status in ['200', '201', '0', '1'] or 'success' in str(check_res.get('msg', '')).lower():
-                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"⏳ Code မှန်ကန်ပါသည်။ ငွေသွင်းနေပါသည်...")
-                
-                pay_res = scraper.post(pay_url, data={'_csrf': csrf_token, 'sec': activation_code}, headers=ajax_headers).json()
-                pay_status = str(pay_res.get('code', pay_res.get('status', '')))
-                
-                if pay_status in ['200', '0', '1'] or 'success' in str(pay_res.get('msg', '')).lower():
-                    time.sleep(5) 
-                    new_bal = get_smile_balance(scraper, headers, balance_check_url)
-                    added_br = round(new_bal['br_balance'] - old_bal['br_balance'], 2)
-                    added_ph = round(new_bal['ph_balance'] - old_bal['ph_balance'], 2)
-                    
-                    currency_msg = "0 (System Delay)"
-                    if api_type == 'BR' and added_br > 0:
-                        db.update_balance(tg_id, br_amount=added_br)
-                        currency_msg = f"{added_br} BR"
-                    elif api_type == 'PH' and added_ph > 0:
-                        db.update_balance(tg_id, ph_amount=added_ph)
-                        currency_msg = f"{added_ph} PH"
-
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"sᴍɪʟᴇ ᴏɴᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ sᴜᴄᴄᴇss ✅")
-                else:
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Rᴇᴅᴇᴇᴍ Fᴀɪʟ ❌")
+        def try_redeem(api_type):
+            if api_type == 'PH':
+                page_url = 'https://www.smile.one/ph/customer/activationcode'
+                check_url = 'https://www.smile.one/ph/smilecard/pay/checkcard'
+                pay_url = 'https://www.smile.one/ph/smilecard/pay/payajax'
+                base_origin = 'https://www.smile.one'
+                base_referer = 'https://www.smile.one/ph/'
+                balance_check_url = 'https://www.smile.one/ph/customer/order'
             else:
-                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌")
+                page_url = 'https://www.smile.one/customer/activationcode'
+                check_url = 'https://www.smile.one/smilecard/pay/checkcard'
+                pay_url = 'https://www.smile.one/smilecard/pay/payajax'
+                base_origin = 'https://www.smile.one'
+                base_referer = 'https://www.smile.one/'
+                balance_check_url = 'https://www.smile.one/customer/order'
 
-        except Exception as e:
-            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Error: {str(e)}")
+            req_headers = headers.copy()
+            req_headers['Referer'] = base_referer
+
+            try:
+                res = scraper.get(page_url, headers=req_headers)
+                if "login" in res.url.lower(): return "expired", None
+
+                soup = BeautifulSoup(res.text, 'html.parser')
+                csrf_token = soup.find('meta', {'name': 'csrf-token'})
+                csrf_token = csrf_token.get('content') if csrf_token else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
+                if not csrf_token: return "error", "❌ CSRF Token not obtained."
+
+                ajax_headers = req_headers.copy()
+                ajax_headers.update({'X-Requested-With': 'XMLHttpRequest', 'Origin': base_origin, 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
+
+                check_res = scraper.post(check_url, data={'_csrf': csrf_token, 'pin': activation_code}, headers=ajax_headers).json()
+                code_status = str(check_res.get('code', check_res.get('status', '')))
+                
+                if code_status in ['200', '201', '0', '1'] or 'success' in str(check_res.get('msg', '')).lower():
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Code is valid. Recharging for {api_type}...")
+                    
+                    old_bal = get_smile_balance(scraper, headers, balance_check_url)
+                    pay_res = scraper.post(pay_url, data={'_csrf': csrf_token, 'sec': activation_code}, headers=ajax_headers).json()
+                    pay_status = str(pay_res.get('code', pay_res.get('status', '')))
+                    
+                    if pay_status in ['200', '0', '1'] or 'success' in str(pay_res.get('msg', '')).lower():
+                        time.sleep(5) 
+                        new_bal = get_smile_balance(scraper, headers, balance_check_url)
+                        added = round(new_bal['br_balance' if api_type == 'BR' else 'ph_balance'] - old_bal['br_balance' if api_type == 'BR' else 'ph_balance'], 2)
+                        return "success", added
+                    else:
+                        return "fail", "Payment failed."
+                else:
+                    return "invalid", "Invalid Code"
+                    
+            except Exception as e:
+                return "error", str(e)
+
+        # 1. Try as BR (Brazil) Code first.
+        status, result = try_redeem('BR')
+        active_region = 'BR'
+        
+        # 2. If not BR or Fail, try PH (Philippines) Code.
+        if status in ['invalid', 'fail']: 
+            status, result = try_redeem('PH')
+            active_region = 'PH'
+
+        # 3. Return Output based on status
+        if status == "expired":
+            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="ʏᴏᴜʀ ᴄᴏᴏᴋɪᴇs ɪs ᴇxᴘɪʀᴇᴅ.")
+        elif status == "error":
+            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Error: {result}")
+        elif status in ['invalid', 'fail']:
+            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌\n(Code is invalid or might have been used)")
+        elif status == "success":
+            added_amount = result
+            
+            if added_amount <= 0:
+                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"sᴍɪʟᴇ ᴏɴᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ sᴜᴄᴄᴇss ✅\n(Cannot retrieve exact amount due to System Delay.)")
+            else:
+                if user_id_int == OWNER_ID:
+                    fee_percent = 0.0
+                    fee_amount = 0.0
+                    net_added = added_amount
+                else:
+                    if added_amount >= 10000:
+                        fee_percent = 0.10
+                    elif added_amount >= 5000:
+                        fee_percent = 0.15
+                    elif added_amount >= 1000:
+                        fee_percent = 0.20
+                    else:
+                        fee_percent = 0.30  
+
+                    fee_amount = round(added_amount * (fee_percent / 100), 2)
+                    net_added = round(added_amount - fee_amount, 2)
+            
+                user_wallet = db.get_reseller(tg_id)
+                if active_region == 'BR':
+                    assets = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
+                    db.update_balance(tg_id, br_amount=net_added)
+                else:
+                    assets = user_wallet.get('ph_balance', 0.0) if user_wallet else 0.0
+                    db.update_balance(tg_id, ph_amount=net_added)
+
+                total_assets = assets + net_added
+                
+                # Format nicely
+                fmt_amount = int(added_amount) if added_amount % 1 == 0 else added_amount
+
+                msg = (
+                    f"✅ <b>Code Top-Up Successful</b>\n\n"
+                    f"<code>"
+                    f"Code   : {activation_code} ({active_region})\n"
+                    f"Amount : {fmt_amount:,}\n"
+                    f"Fee    : -{fee_amount:.1f} ({fee_percent}%)\n"
+                    f"Added  : +{net_added:,.1f} 🪙\n"
+                    f"Assets : {assets:,.1f} 🪙\n"
+                    f"Total  : {total_assets:,.1f} 🪙"
+                    f"</code>"
+                )
+                
+                bot.edit_message_text(
+                    chat_id=message.chat.id, 
+                    message_id=loading_msg.message_id, 
+                    text=msg, 
+                    parse_mode="HTML"
+                )
+
 
 # ==========================================
-# 7. 📌 ROLE စစ်ဆေးရန် COMMAND
+# 7. 📌 COMMAND TO CHECK ROLE
 # ==========================================
 @bot.message_handler(func=lambda message: re.match(r"(?i)^/?role\b", message.text.strip()))
 def handle_check_role(message):
@@ -620,7 +784,7 @@ def handle_check_role(message):
 
     match = re.search(r"(?i)^/?role\s+(\d+)\s*\(\s*(\d+)\s*\)", message.text.strip())
     if not match:
-        return bot.reply_to(message, "❌ Format မှားယွင်းနေပါသည်:\n(ဥပမာ - `/role 123456789 (12345)`)", parse_mode="Markdown")
+        return bot.reply_to(message, "❌ Invalid format:\n(Example - `/role 123456789 (12345)`)", parse_mode="Markdown")
 
     game_id = match.group(1).strip()
     zone_id = match.group(2).strip()
@@ -645,7 +809,7 @@ def handle_check_role(message):
             if csrf_input: csrf_token = csrf_input.get('value')
 
         if not csrf_token:
-            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ CSRF Token ရှာမတွေ့ပါ။ /setcookie ဖြင့် Cookie အသစ်ထည့်ပါ။")
+            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ CSRF Token not found. Add a new Cookie using /setcookie.")
 
         check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
         role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
@@ -653,15 +817,15 @@ def handle_check_role(message):
         try: 
             role_result = role_response.json()
         except: 
-            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ စစ်ဆေး၍မရပါ။ (Smile API Error)")
+            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ Cannot verify. (Smile API Error)")
             
         ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
         
         if not ig_name or str(ig_name).strip() == "":
-            real_error = role_result.get('msg') or role_result.get('message') or "အကောင့်ရှာမတွေ့ပါ။"
+            real_error = role_result.get('msg') or role_result.get('message') or "Account not found."
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
-                return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="⚠️ Cookie သက်တမ်းကုန်သွားပါပြီ။ ကျေးဇူးပြု၍ `/setcookie` ဖြင့် အသစ်ထည့်ပါ။")
-            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ **အကောင့် မှားယွင်းနေပါသည်:**\n{real_error}")
+                return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="⚠️ Cookie expired. Please add a new one using `/setcookie`.")
+            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ **Invalid Account:**\n{real_error}")
 
         smile_region = role_result.get('zone') or role_result.get('region') or role_result.get('data', {}).get('zone') or "Unknown"
 
@@ -696,11 +860,11 @@ def handle_check_role(message):
         bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ System Error: {str(e)}")
 
 # ==========================================
+# 8. 💎 PURCHASE WITH MLBB V-WALLET (AUTO REGION DETECT & HTML UI)
 # ==========================================
-# 8. 💎 MLBB V-WALLET ဖြင့် ဝယ်ယူခြင်း (AUTO REGION DETECT & HTML UI)
-# ==========================================
-@bot.message_handler(func=lambda message: re.match(r"(?i)^msc\s+\d+", message.text.strip()))
+@bot.message_handler(func=lambda message: re.match(r"(?i)^(?:msc|br|ph|mlb|mlp|b|p)\s+\d+", message.text.strip()))
 def handle_direct_buy(message):
+    # 1. Check Authorization
     if not is_authorized(message):
         return bot.reply_to(message, f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
 
@@ -711,22 +875,35 @@ def handle_direct_buy(message):
         telegram_user = message.from_user.username
         username_display = f"@{telegram_user}" if telegram_user else tg_id
         
-        with transaction_lock: # 👈 V-Wallet အတွက် မဖြစ်မနေ လိုအပ်ပါသည်
+        # 2. Transaction Lock (To prevent double spending)
+        with transaction_lock: 
             for line in lines:
                 line = line.strip()
                 if not line: continue 
-                    
-                match = re.search(r"(?i)^(?:msc\s+)?(\d+)\s*\(\s*(\d+)\s*\)\s*([a-zA-Z0-9_]+)", line)
+                
+                # ✅ UPDATED REGEX: 
+                # - Handles prefixes: msc, br, ph, mlb, mlp, b, p
+                # - Handles Zone ID: 1234 OR (1234)
+                match = re.search(r"(?i)^(?:(?:msc|br|ph|mlb|mlp|b|p)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)", line)
+                
                 if not match:
-                    bot.reply_to(message, f"Format မှားယွင်းနေပါသည်: `{line}`\n(ဥပမာ - msc 12345678 (1234) wp)")
+                    bot.reply_to(message, f"Invalid format: `{line}`\n(Example: msc 12345678 1234 11 OR br 12345678 (1234) wp)")
                     continue
                     
                 game_id = match.group(1)
                 zone_id = match.group(2)
                 item_input = match.group(3).lower() 
                 
-                # Region (BR / PH) Auto ခွဲခြားခြင်း
-                if item_input in BR_PACKAGES:
+                # ✅ Package Checking Logic (Priority: Double > BR > PH)
+                currency_name = ''
+                active_packages = {}
+                v_bal_key = ''
+
+                if item_input in DOUBLE_DIAMOND_PACKAGES:
+                    currency_name = 'BR'
+                    active_packages = DOUBLE_DIAMOND_PACKAGES
+                    v_bal_key = 'br_balance'
+                elif item_input in BR_PACKAGES:
                     currency_name = 'BR'
                     active_packages = BR_PACKAGES
                     v_bal_key = 'br_balance'
@@ -735,13 +912,13 @@ def handle_direct_buy(message):
                     active_packages = PH_PACKAGES
                     v_bal_key = 'ph_balance'
                 else:
-                    bot.reply_to(message, f"ရွေးချယ်ထားသော '{item_input}' အတွက် Package မရှိပါ။")
+                    bot.reply_to(message, f"❌ No Package found for the selected '{item_input}'.")
                     continue
                     
                 items_to_buy = active_packages[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                # V-Wallet Balance စစ်ဆေးခြင်း
+                # 3. Check V-Wallet Balance
                 user_wallet = db.get_reseller(tg_id)
                 user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
                 
@@ -754,7 +931,7 @@ def handle_direct_buy(message):
                     bot.reply_to(message, error_text)
                     continue
                 
-                loading_msg = bot.reply_to(message, f"Diam͟o͟n͟d͟ ဖြည့်သွင်းနေပါသည် ● ᥫ᭡")
+                loading_msg = bot.reply_to(message, f"Recharging Diam͟o͟n͟d͟ ● ᥫ᭡")
                 
                 success_count = 0
                 fail_count = 0
@@ -764,8 +941,8 @@ def handle_direct_buy(message):
                 error_msg = ""
                 first_order = True
                 
+                # 4. Processing Orders
                 for item in items_to_buy:
-                    # bot.py ရှိ process_smile_one_order အတိုင်း Parameters ၄ ခုသာ ပို့မည်
                     result = process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
                     
                     if result['status'] == 'success':
@@ -783,38 +960,51 @@ def handle_direct_buy(message):
                         error_msg = result['message']
                         break 
                 
+                # 5. Post-Processing (Success)
                 if success_count > 0:
                     now = datetime.datetime.now(MMT)
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
-                    # ဖြတ်သွားသော ငွေကို V-Wallet မှ နှုတ်မည်
+                    # A. Deduct Balance
                     if currency_name == 'BR':
                         db.update_balance(tg_id, br_amount=-total_spent)
                     else:
                         db.update_balance(tg_id, ph_amount=-total_spent)
                     
+                    # B. Fetch Updated Balance
                     new_wallet = db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
+
                     
-                    # Error မတက်အောင် HTML သင်္ကေတများကို ရှင်းထုတ်ခြင်း
+                    final_order_ids = order_ids_str.strip().replace('\n', ', ')
+                    
+                    db.save_order(
+                        tg_id=tg_id,
+                        game_id=game_id,
+                        zone_id=zone_id,
+                        item_name=item_input,
+                        price=total_spent,
+                        order_id=final_order_ids,
+                        status="success"
+                    )
+                 
                     import html
                     safe_ig_name = html.escape(str(ig_name))
                     safe_username = html.escape(str(username_display))
                     
-                    # 👈 Blockquote နှင့် Monospace Font ရောသုံးထားခြင်း
                     report = (
                         f"<blockquote><code>=== ᴛʀᴀɴꜱᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
-                        f"ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
-                        f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
-                        f"ɪɢ ɴᴀᴍᴇ: {safe_ig_name}\n"
-                        f"sᴇʀɪᴀʟ:\n{order_ids_str.strip()}\n"
-                        f"ɪᴛᴇᴍ: {item_input} 💎\n"
-                        f"sᴘᴇɴᴛ: {total_spent:.2f} 🪙\n\n"
-                        f"ᴅᴀᴛᴇ: {date_str}\n"
-                        f"ᴜsᴇʀɴᴀᴍᴇ: {safe_username}\n"
-                        f"sᴘᴇɴᴛ : ${total_spent:.2f}\n"
-                        f"ɪɴɪᴛɪᴀʟ: ${user_v_bal:,.2f}\n"
-                        f"ғɪɴᴀʟ : ${new_v_bal:,.2f}\n\n"
+                        f"ᴏʀᴅᴇʀ sᴛᴀᴛᴜs : ✅ Sᴜᴄᴄᴇss\n"
+                        f"ɢᴀᴍᴇ ɪᴅ      : {game_id} {zone_id}\n"
+                        f"ɪɢ ɴᴀᴍᴇ      : {safe_ig_name}\n"
+                        f"sᴇʀɪᴀʟ       :\n{order_ids_str.strip()}\n"
+                        f"ɪᴛᴇᴍ         : {item_input} 💎\n"
+                        f"sᴘᴇɴᴛ        : {total_spent:.2f} 🪙\n\n"
+                        f"ᴅᴀᴛᴇ         : {date_str}\n"
+                        f"ᴜsᴇʀɴᴀᴍᴇ     : {safe_username}\n"
+                        f"sᴘᴇɴᴛ        : ${total_spent:.2f}\n"
+                        f"ɪɴɪᴛɪᴀʟ      : ${user_v_bal:,.2f}\n"
+                        f"ғɪɴᴀʟ        : ${new_v_bal:,.2f}\n\n"
                         f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>"
                     )
 
@@ -826,17 +1016,22 @@ def handle_direct_buy(message):
                     )
                     
                     if fail_count > 0:
-                        bot.reply_to(message, f"အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
+                        bot.reply_to(message, f"⚠️ Only partially successful.\nError: {error_msg}")
                 else:
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order မအောင်မြင်ပါ:\n{error_msg}")
+                    # 6. Post-Processing (Failure)
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order failed:\n{error_msg}")
 
     except Exception as e:
         bot.reply_to(message, f"System Error: {str(e)}")
-                    
 
+
+
+# ==========================================
 # 🌟 NEW: 8.1 MAGIC CHESS V-WALLET ဖြင့် ဝယ်ယူခြင်း 🌟
+# ==========================================
 @bot.message_handler(func=lambda message: re.match(r"(?i)^mcc\s+\d+", message.text.strip()))
 def handle_mcc_buy(message):
+    # 1. Check Authorization
     if not is_authorized(message):
         return bot.reply_to(message, f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.", parse_mode="Markdown")
 
@@ -847,26 +1042,33 @@ def handle_mcc_buy(message):
         telegram_user = message.from_user.username
         username_display = f"@{telegram_user}" if telegram_user else tg_id
         
+        # 2. Transaction Lock
         with transaction_lock:
             for line in lines:
                 line = line.strip()
                 if not line: continue 
-                    
-                match = re.search(r"(?i)^(?:mcc\s+)?(\d+)\s*\(\s*(\d+)\s*\)\s*([a-zA-Z0-9_]+)", line)
+                
+                # ✅ UPDATED REGEX FOR MCC
+                # Supports: mcc 123456 1234 86 OR mcc 123456 (1234) 86
+                match = re.search(r"(?i)^(?:mcc\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)", line)
+                
                 if not match:
-                    bot.reply_to(message, f"❌ Format မှားယွင်းနေပါသည်: `{line}`\n(ဥပမာ - mcc 12345678 (1234) 86)", parse_mode="Markdown")
+                    bot.reply_to(message, f"❌ Invalid format: `{line}`\n(Example: mcc 12345678 1234 86)", parse_mode="Markdown")
                     continue
                     
-                game_id, zone_id, item_input = match.group(1), match.group(2), match.group(3).lower()
+                game_id = match.group(1)
+                zone_id = match.group(2)
+                item_input = match.group(3).lower()
                 
-                # Magic Chess သည် BR Package ကိုသာ အသုံးပြုသည်
+                # 3. Check Package (Magic Chess usually uses BR Package only)
                 if item_input not in MCC_PACKAGES:
-                    bot.reply_to(message, f"❌ '{item_input}' အတွက် Magic Chess Package မရှိပါ။")
+                    bot.reply_to(message, f"❌ No Magic Chess Package found for '{item_input}'.")
                     continue
                     
                 items_to_buy = MCC_PACKAGES[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
+                # 4. Check V-Wallet Balance (BR Balance)
                 user_wallet = db.get_reseller(tg_id)
                 user_v_bal = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
                 
@@ -889,6 +1091,7 @@ def handle_mcc_buy(message):
                 error_msg = ""
                 first_order = True
                 
+                # 5. Process Orders
                 for item in items_to_buy:
                     result = process_mcc_order(game_id, zone_id, item['pid'])
                     
@@ -899,7 +1102,7 @@ def handle_mcc_buy(message):
                         
                         success_count += 1
                         total_spent += item['price']
-                        order_ids_str += f"`{result['order_id']}`\n"
+                        order_ids_str += f"{result['order_id']}\n"
                         
                         time.sleep(random.randint(5, 10)) 
                     else:
@@ -907,39 +1110,153 @@ def handle_mcc_buy(message):
                         error_msg = result['message']
                         break 
                 
+                # 6. Post-Processing
                 if success_count > 0:
                     now = datetime.datetime.now(MMT)
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
-                    # ဝယ်ယူမှု အောင်မြင်သောကြောင့် BR ငွေကို နှုတ်မည်
+                    # A. Deduct BR amount
                     db.update_balance(tg_id, br_amount=-total_spent)
                     
+                    # B. Get New Balance
                     new_wallet = db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get('br_balance', 0.0) if new_wallet else 0.0
                     
-                    report = f"**MCC {game_id} ({zone_id}) {item_input}**\n"
-                    report += "=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
-                    report += "ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
-                    report += f"ɢᴀᴍᴇ: ᴍᴀɢɪᴄ ᴄʜᴇss ɢᴏ ɢᴏ\n"
-                    report += f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
-                    report += f"ɪɢ ɴᴀᴍᴇ: {ig_name}\n"
-                    report += f"ᴏʀᴅᴇʀ ɪᴅ:\n{order_ids_str}"
-                    report += f"ɪᴛᴇᴍ: {item_input} 💎\n"
-                    report += f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
-                    report += f"ᴅᴀᴛᴇ: {date_str}\n"
-                    report += f"ᴜsᴇʀɴᴀᴍᴇ: {username_display}\n"
-                    report += f"ᴛᴏᴛᴀʟ sᴘᴇɴᴛ: ${total_spent:.2f}\n"
-                    report += f"ɪɴɪᴛɪᴀʟ ʙᴀʟᴀɴᴄᴇ: ${user_v_bal:.2f}\n"
-                    report += f"ғɪɴᴀʟ ʙᴀʟᴀɴᴄᴇ: ${new_v_bal:.2f}\n\n"
-                    report += f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}" 
+                   
+                    final_order_ids = order_ids_str.strip().replace('\n', ', ')
+                    
+                    db.save_order(
+                        tg_id=tg_id,
+                        game_id=game_id,
+                        zone_id=zone_id,
+                        item_name=item_input,
+                        price=total_spent,
+                        order_id=final_order_ids,
+                        status="success"
+                    )
 
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="Markdown")
-                    if fail_count > 0: bot.reply_to(message, f"⚠️ အချို့သာ အောင်မြင်ပါသည်။\nError: {error_msg}")
+                 
+                    import html
+                    safe_ig_name = html.escape(str(ig_name))
+                    safe_username = html.escape(str(username_display))
+
+                    report = (
+                        f"<blockquote><code>**MCC {game_id} ({zone_id}) {item_input}**\n"
+                        f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
+                        f"ᴏʀᴅᴇʀ sᴛᴀᴛᴜs: ✅ Sᴜᴄᴄᴇss\n"
+                        f"ɢᴀᴍᴇ: ᴍᴀɢɪᴄ ᴄʜᴇss ɢᴏ ɢᴏ\n"
+                        f"ɢᴀᴍᴇ ɪᴅ: {game_id} {zone_id}\n"
+                        f"ɪɢ ɴᴀᴍᴇ: {safe_ig_name}\n"
+                        f"ᴏʀᴅᴇʀ ɪᴅ:\n{order_ids_str.strip()}\n"
+                        f"ɪᴛᴇᴍ: {item_input} 💎\n"
+                        f"ᴛᴏᴛᴀʟ ᴀᴍᴏᴜɴᴛ: {total_spent:.2f} 🪙\n\n"
+                        f"ᴅᴀᴛᴇ: {date_str}\n"
+                        f"ᴜsᴇʀɴᴀᴍᴇ: {safe_username}\n"
+                        f"ᴛᴏᴛᴀʟ sᴘᴇɴᴛ: ${total_spent:.2f}\n"
+                        f"ɪɴɪᴛɪᴀʟ ʙᴀʟᴀɴᴄᴇ: ${user_v_bal:.2f}\n"
+                        f"ғɪɴᴀʟ ʙᴀʟᴀɴᴄᴇ: ${new_v_bal:.2f}\n\n"
+                        f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>" 
+                    )
+
+                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="HTML")
+                    
+                    if fail_count > 0: 
+                        bot.reply_to(message, f"⚠️ Only partially successful.\nError: {error_msg}")
                 else:
                     bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Oʀᴅᴇʀ ғᴀɪʟ❌\n{error_msg}")
 
     except Exception as e:
         bot.reply_to(message, f"Sʏsᴛᴇᴍ ᴇʀʀᴏʀ: {str(e)}")
+
+
+
+
+# ==========================================
+# 11. 📜 BR PRICE LIST COMMAND (.listb / /listb)
+# ==========================================
+@bot.message_handler(commands=['listb'])
+@bot.message_handler(func=lambda message: message.text.strip().lower() == '.listb')
+def show_price_list(message):
+    if not is_authorized(message):
+        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+
+    def generate_list(package_dict):
+        lines = []
+        for key, items in package_dict.items():
+            total_price = sum(item['price'] for item in items)
+            lines.append(f"{key:<5} : ${total_price:,.2f}")
+        return "\n".join(lines)
+
+    br_list = generate_list(BR_PACKAGES)
+    bonus_list = generate_list(DOUBLE_DIAMOND_PACKAGES)
+    #mcc_list = generate_list(MCC_PACKAGES)
+
+    response_text = (
+        f"🇧🇷 <b>𝘿𝙤𝙪𝙗𝙡𝙚 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
+        f"<code>{bonus_list}</code>\n\n"
+        f"🇧🇷 <b>𝘽𝙧 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
+        f"<code>{br_list}</code>"
+    )
+
+    bot.reply_to(message, response_text, parse_mode="HTML")
+
+
+# 11.1 📜 PH PRICE LIST COMMAND (.listp / /listp)
+# ==========================================
+@bot.message_handler(commands=['listp'])
+@bot.message_handler(func=lambda message: message.text.strip().lower() == '.listp')
+def show_price_list(message):
+    if not is_authorized(message):
+        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+
+    def generate_list(package_dict):
+        lines = []
+        for key, items in package_dict.items():
+            total_price = sum(item['price'] for item in items)
+            lines.append(f"{key:<5} : ${total_price:,.2f}")
+        return "\n".join(lines)
+
+    ph_list = generate_list(PH_PACKAGES)
+    #bonus_list = generate_list(DOUBLE_DIAMOND_PACKAGES)
+    #mcc_list = generate_list(MCC_PACKAGES)
+
+    response_text = (
+        #f"🇵🇭 <b>𝘿𝙤𝙪𝙗𝙡𝙚 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
+        #f"<code>{bonus_list}</code>\n\n"
+        f"🇵🇭 <b>𝙋𝙝 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
+        f"<code>{ph_list}</code>"
+    )
+
+    bot.reply_to(message, response_text, parse_mode="HTML")
+
+
+# 11.2 📜 BR MCC PRICE LIST COMMAND (.listmb / /listmb)
+# ==========================================
+@bot.message_handler(commands=['listmb'])
+@bot.message_handler(func=lambda message: message.text.strip().lower() == '.listmb')
+def show_price_list(message):
+    if not is_authorized(message):
+        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+
+    def generate_list(package_dict):
+        lines = []
+        for key, items in package_dict.items():
+            total_price = sum(item['price'] for item in items)
+            lines.append(f"{key:<5} : ${total_price:,.2f}")
+        return "\n".join(lines)
+
+    #br_list = generate_list(BR_PACKAGES)
+    #bonus_list = generate_list(DOUBLE_DIAMOND_PACKAGES)
+    mcc_list = generate_list(MCC_PACKAGES)
+
+    response_text = (
+       # f"🇧🇷 <b>𝘿𝙤𝙪𝙗𝙡𝙚 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
+        #f"<code>{bonus_list}</code>\n\n"
+        f"🇧🇷 <b>𝙈𝘾𝘾 𝙋𝘼𝘾𝙆𝘼𝙂𝙀𝙎</b>\n"
+        f"<code>{mcc_list}</code>"
+    )
+
+    bot.reply_to(message, response_text, parse_mode="HTML")
 
 # ==========================================
 # 10. 💓 HEARTBEAT FUNCTION
@@ -947,7 +1264,7 @@ def handle_mcc_buy(message):
 def keep_cookie_alive():
     while True:
         try:
-            time.sleep(3 * 60) 
+            time.sleep(2 * 60) 
             scraper = get_main_scraper()
             headers = {
                 'User-Agent': 'Mozilla/5.0',
@@ -962,8 +1279,65 @@ def keep_cookie_alive():
                 auto_login_and_get_cookie()
         except: pass
 
+
 # ==========================================
-# 9. START BOT / DEFAULT COMMAND
+# ℹ️ HELP COMMAND (.help / /help)
+# ==========================================
+@bot.message_handler(commands=['help'])
+@bot.message_handler(func=lambda message: message.text.strip().lower() == '.help')
+def send_help_message(message):
+    # Owner ဟုတ်မဟုတ် စစ်ဆေးခြင်း (Admin Command များကို Owner ပဲမြင်ရမည်)
+    is_owner = (message.from_user.id == OWNER_ID)
+
+    # Header Design
+    help_text = (
+        f"<b>🤖 𝐁𝐎𝐓 𝐂𝐎𝐌𝐌𝐀𝐍𝐃𝐒 𝐌𝐄𝐍𝐔</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    help_text += (
+        f"<b>💎 𝐌𝐋𝐁Ｂ 𝐃𝐢𝐚𝐦𝐨𝐧𝐝𝐬</b>\n"
+        f"<blockquote><code>msc ID (Zone) Pack</code></blockquote>\n"
+        f"Ex: <code>msc 12345678 12345 172</code>\n"
+        f"<i>(command : msc, br, ph, mlb, mlp)</i>\n\n"
+
+        f"<b>♟️ 𝐌𝐚𝐠𝐢𝐜 𝐂𝐡𝐞𝐬𝐬</b>\n"
+        f"<blockquote><code>mcc ID (Zone) Pack</code></blockquote>\n"
+        f"Ex: <code>mcc 12345678 1234 86</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    # 2. 👤 USER TOOLS (သာမန်အသုံးပြုသူများအတွက်)
+    help_text += (
+        f"<b>👤 𝐔𝐬𝐞𝐫 𝐓𝐨𝐨𝐥𝐬</b>\n"
+        f"🔹 <code>.balance</code>  : Check Wallet Balance\n"
+        f"🔹 <code>.his</code>      : View Order History\n"
+        f"🔹 <code>.listb</code>     : View Price List\n"
+        f"🔹 <code>.listp</code>     : View Price List\n"
+        f"🔹 <code>.listmb</code>     : View Price List\n"
+        f"🔹 <code>.role ID (Zone)</code> : Check IGN\n"
+        f"🔹 <code>.topup Code</code> : Redeem Voucher\n\n"
+    )
+
+    # 3. 👑 OWNER COMMANDS (ပိုင်ရှင်အတွက်သာ)
+    if is_owner:
+        help_text += (
+            f"<b>👑 𝐎𝐰𝐧𝐞𝐫 𝐂𝐨𝐦𝐦𝐚𝐧𝐝𝐬</b>\n"
+            f"🔸 <code>/add ID</code>    : Add User\n"
+            f"🔸 <code>/remove ID</code> : Remove User\n"
+            f"🔸 <code>/users</code>     : User List\n"
+            f"🔸 <code>/setcookie</code> : Update Cookie\n"
+        )
+        
+    help_text += f"━━━━━━━━━━━━━━━━━━━━━"
+
+    # Message ပို့မည်
+    bot.reply_to(message, help_text, parse_mode="HTML")
+
+
+
+# ==========================================
+# 9. START BOT / DEFAULT COMMAND (FIXED)
 # ==========================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -979,17 +1353,26 @@ def send_welcome(message):
         safe_full_name = full_name.replace('<', '').replace('>', '')
         username_display = f'<a href="tg://user?id={tg_id}">{safe_full_name}</a>'
         
+        # 🟢 [Premium Emoji ID များ ထည့်သွင်းရန်] 🟢
+        # အောက်ပါ ID ဂဏန်းများကို မိမိရှာထားသော Custom Emoji ID အမှန်များဖြင့် အစားထိုးပါ
+        EMOJI_1 = "5956355397366320202" # 🥺
+        EMOJI_2 = "5954097490109140119" # 👤
+        EMOJI_3 = "5958289678837746828" # 🆔
+        EMOJI_4 = "5956330306167376831" # 📊
+        EMOJI_5 = "5954078884310814346" # 📞
+
         if is_authorized(message):
             status = "🟢 Aᴄᴛɪᴠᴇ"
         else:
             status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
             
+        # telebot အတွက် <tg-emoji emoji-id="xxx"> ကို သုံးရပါမည်
         welcome_text = (
-            f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
-            f"Usᴇʀɴᴀᴍᴇ: {username_display}\n"
-            f"𝐈𝐃: <code>{tg_id}</code>\n"
-            f"Sᴛᴀᴛᴜs: {status}\n\n"
-            f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+            f"ʜᴇʏ ʙᴀʙʏ <tg-emoji emoji-id='{EMOJI_1}'>🥺</tg-emoji>\n\n"
+            f"<tg-emoji emoji-id='{EMOJI_2}'>👤</tg-emoji> Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+            f"<tg-emoji emoji-id='{EMOJI_3}'>🆔</tg-emoji> 𝐈𝐃: <code>{tg_id}</code>\n"
+            f"<tg-emoji emoji-id='{EMOJI_4}'>📊</tg-emoji> Sᴛᴀᴛᴜs: {status}\n\n"
+            f"<tg-emoji emoji-id='{EMOJI_5}'>📞</tg-emoji> Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
         
         bot.reply_to(message, welcome_text, parse_mode="HTML")
@@ -997,14 +1380,16 @@ def send_welcome(message):
     except Exception as e:
         print(f"Start Cmd Error: {e}")
         
+        # Error တက်ခဲ့ရင် ရိုးရိုး Text နဲ့ ပြရန် Backup
         fallback_text = (
-            f"ʜᴇʏ ʙᴀʙʏ🥺\n\n"
-            f"Usᴇʀɴᴀᴍᴇ: {full_name}\n"
-            f"𝐈𝐃: `{tg_id}`\n"
-            f"Sᴛᴀᴛᴜs: {status}\n\n"
-            f"Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+            f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n"
+            f"👤 Usᴇʀɴᴀᴍᴇ: {full_name}\n"
+            f"🆔 𝐈𝐃: `{tg_id}`\n"
+            f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
+            f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
-        bot.reply_to(message, fallback_text)
+        bot.reply_to(message, fallback_text, parse_mode="Markdown")
+
 
 # ==========================================
 # 10. RUN BOT
@@ -1021,3 +1406,5 @@ if __name__ == '__main__':
 
     print("Bot is successfully running (With MongoDB Virtual Wallet & Magic Chess System)...")
     bot.infinity_polling()
+    
+    

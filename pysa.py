@@ -3,7 +3,6 @@ import re
 import datetime
 import cloudscraper
 from bs4 import BeautifulSoup
-import json
 import random
 from dotenv import load_dotenv
 import asyncio
@@ -23,8 +22,8 @@ import database as db
 load_dotenv() 
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-API_ID = int(os.getenv('API_ID', 20078321)) 
-API_HASH = os.getenv('API_HASH', "c8ed904e4aac83cea1f27b73984debad") 
+API_ID = int(os.getenv('API_ID', 123456))  # ဤနေရာတွင် မိမိ API_ID ပြောင်းထည့်ပါ
+API_HASH = os.getenv('API_HASH', "your_api_hash_here") # ဤနေရာတွင် မိမိ API_HASH ပြောင်းထည့်ပါ
 OWNER_ID = int(os.getenv('OWNER_ID', 1318826936)) 
 FB_EMAIL = os.getenv('FB_EMAIL')
 FB_PASS = os.getenv('FB_PASS')
@@ -46,14 +45,11 @@ app = Client(
 # Pyrogram တွင် Blocking မဖြစ်စေရန် Threading Lock အစား Asyncio Lock သုံးရမည်
 transaction_lock = asyncio.Lock()
 
-# Initialize Owner account in Database
-db.init_owner(OWNER_ID)
-
 # ==========================================
 # 🍪 MAIN SCRAPER (OWNER'S COOKIE ONLY)
 # ==========================================
-def get_main_scraper():
-    raw_cookie = db.get_main_cookie()
+async def get_main_scraper():
+    raw_cookie = await db.get_main_cookie()
     cookie_dict = {}
     if raw_cookie:
         for item in raw_cookie.split(';'):
@@ -112,8 +108,8 @@ async def auto_login_and_get_cookie():
                 cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
                 raw_cookie_str = "; ".join([f"{k}={v}" for k, v in cookie_dict.items()])
                 
-                # Database write is sync, wrap in thread to be safe
-                await asyncio.to_thread(db.update_main_cookie, raw_cookie_str)
+                # Database update
+                await db.update_main_cookie(raw_cookie_str)
                 await browser.close()
                 return True
             except Exception as wait_e:
@@ -218,7 +214,7 @@ MCC_PACKAGES = {
 async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one/customer/order'):
     balances = {'br_balance': 0.00, 'ph_balance': 0.00}
     try:
-        # Network request ကို Async ပြောင်းထားသည်
+        # Network request ကို Blocking မဖြစ်စေရန် Async ပြောင်းထားသည်
         response = await asyncio.to_thread(scraper.get, balance_url, headers=headers)
         br_match = re.search(r'(?i)(?:Balance|Saldo)[\s:]*?<\/p>\s*<p>\s*([\d\.,]+)', response.text)
         if br_match: balances['br_balance'] = float(br_match.group(1).replace(',', ''))
@@ -244,7 +240,7 @@ async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one
 # 3. SMILE.ONE SCRAPER FUNCTION (MLBB) [FULLY ASYNC]
 # ==========================================
 async def process_smile_one_order(game_id, zone_id, product_id, currency_name):
-    scraper = get_main_scraper()
+    scraper = await get_main_scraper()
 
     if currency_name == 'PH':
         main_url = 'https://www.smile.one/ph/merchant/mobilelegends'
@@ -354,7 +350,7 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name):
 
 # 🌟 NEW: 3.1 MAGIC CHESS SCRAPER FUNCTION [FULLY ASYNC] 🌟
 async def process_mcc_order(game_id, zone_id, product_id):
-    scraper = get_main_scraper()
+    scraper = await get_main_scraper()
 
     main_url = 'https://www.smile.one/br/merchant/game/magicchessgogo'
     checkrole_url = 'https://www.smile.one/br/merchant/game/checkrole'
@@ -457,10 +453,11 @@ async def process_mcc_order(game_id, zone_id, product_id):
 # ==========================================
 # 4. 🛡️ FUNCTION TO CHECK AUTHORIZATION
 # ==========================================
-def is_authorized(message: Message):
+async def is_authorized(message: Message):
     if message.from_user.id == OWNER_ID:
         return True
-    return db.get_reseller(message.from_user.id) is not None
+    user = await db.get_reseller(message.from_user.id)
+    return user is not None
 
 # ==========================================
 # 5. RESELLER MANAGEMENT & COMMANDS (Pyrogram)
@@ -474,7 +471,7 @@ async def add_reseller(client, message: Message):
     target_id = parts[1].strip()
     if not target_id.isdigit(): return await message.reply("Please enter the User ID in numbers only.")
         
-    if await asyncio.to_thread(db.add_reseller, target_id, f"User_{target_id}"):
+    if await db.add_reseller(target_id, f"User_{target_id}"):
         await message.reply(f"✅ Reseller ID `{target_id}` has been approved.")
     else:
         await message.reply(f"Reseller ID `{target_id}` is already in the list.")
@@ -488,7 +485,7 @@ async def remove_reseller(client, message: Message):
     target_id = parts[1].strip()
     if target_id == str(OWNER_ID): return await message.reply("The Owner cannot be removed.")
         
-    if await asyncio.to_thread(db.remove_reseller, target_id):
+    if await db.remove_reseller(target_id):
         await message.reply(f"✅ Reseller ID `{target_id}` has been removed.")
     else:
         await message.reply("That ID is not in the list.")
@@ -496,7 +493,7 @@ async def remove_reseller(client, message: Message):
 @app.on_message(filters.command("users"))
 async def list_resellers(client, message: Message):
     if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
-    resellers_list = await asyncio.to_thread(db.get_all_resellers)
+    resellers_list = await db.get_all_resellers()
     user_list = []
     
     for r in resellers_list:
@@ -512,7 +509,7 @@ async def set_cookie_command(client, message: Message):
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2: return await message.reply("⚠️ **Usage format:**\n`/setcookie <Long_Main_Cookie>`")
     
-    await asyncio.to_thread(db.update_main_cookie, parts[1].strip())
+    await db.update_main_cookie(parts[1].strip())
     await message.reply("✅ **Main Cookie has been successfully updated securely.**")
 
 ##################################################
@@ -546,7 +543,7 @@ async def handle_raw_cookie_dump(client, message: Message):
         if did_match:
             formatted_cookie += f" _did={did_match.group(1)};"
 
-        await asyncio.to_thread(db.update_main_cookie, formatted_cookie)
+        await db.update_main_cookie(formatted_cookie)
             
         response_msg = f"✅ **Smart Cookie Parser: Success!**\n\n"
         response_msg += f"🍪 **Saved Cookie:**\n`{formatted_cookie}`"
@@ -560,10 +557,10 @@ async def handle_raw_cookie_dump(client, message: Message):
 
 @app.on_message(filters.command("balance"))
 async def check_balance_command(client, message: Message):
-    if not is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+    if not await is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     tg_id = str(message.from_user.id)
-    user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
+    user_wallet = await db.get_reseller(tg_id)
     if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
     report = f"💳 Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
@@ -572,7 +569,7 @@ async def check_balance_command(client, message: Message):
     
     if message.from_user.id == OWNER_ID:
         loading_msg = await message.reply("Fetching real balance from the official account...")
-        scraper = get_main_scraper()
+        scraper = await get_main_scraper()
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
             balances = await get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
@@ -592,13 +589,13 @@ async def check_balance_command(client, message: Message):
 # ==========================================
 @app.on_message(filters.command("history") | filters.regex(r"(?i)^\.his$"))
 async def send_order_history(client, message: Message):
-    if not is_authorized(message):
+    if not await is_authorized(message):
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     tg_id = str(message.from_user.id)
     user_name = message.from_user.username or message.from_user.first_name
     
-    history_data = await asyncio.to_thread(db.get_user_history, tg_id, limit=5)
+    history_data = await db.get_user_history(tg_id, limit=5)
     
     if not history_data:
         return await message.reply("📜 **No Order History Found.**")
@@ -625,7 +622,7 @@ async def send_order_history(client, message: Message):
 # ==========================================
 @app.on_message(filters.regex(r"(?i)^\.topup\s+([a-zA-Z0-9]+)"))
 async def handle_topup(client, message: Message):
-    if not is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+    if not await is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     match = re.search(r"(?i)^\.topup\s+([a-zA-Z0-9]+)", message.text.strip())
     if not match: return await message.reply("Usage format - `.topup <Code>`")
@@ -637,7 +634,7 @@ async def handle_topup(client, message: Message):
     loading_msg = await message.reply(f"Checking Code `{activation_code}`...")
     
     async with transaction_lock:
-        scraper = get_main_scraper()
+        scraper = await get_main_scraper()
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -733,13 +730,13 @@ async def handle_topup(client, message: Message):
                     fee_amount = round(added_amount * (fee_percent / 100), 2)
                     net_added = round(added_amount - fee_amount, 2)
             
-                user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
+                user_wallet = await db.get_reseller(tg_id)
                 if active_region == 'BR':
                     assets = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
-                    await asyncio.to_thread(db.update_balance, tg_id, br_amount=net_added)
+                    await db.update_balance(tg_id, br_amount=net_added)
                 else:
                     assets = user_wallet.get('ph_balance', 0.0) if user_wallet else 0.0
-                    await asyncio.to_thread(db.update_balance, tg_id, ph_amount=net_added)
+                    await db.update_balance(tg_id, ph_amount=net_added)
 
                 total_assets = assets + net_added
                 
@@ -765,7 +762,7 @@ async def handle_topup(client, message: Message):
 # ==========================================
 @app.on_message(filters.regex(r"(?i)^/?role\b"))
 async def handle_check_role(client, message: Message):
-    if not is_authorized(message):
+    if not await is_authorized(message):
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     match = re.search(r"(?i)^/?role\s+(\d+)\s*\(\s*(\d+)\s*\)", message.text.strip())
@@ -777,7 +774,7 @@ async def handle_check_role(client, message: Message):
     
     loading_msg = await message.reply("💻")
 
-    scraper = get_main_scraper()
+    scraper = await get_main_scraper()
     
     main_url = 'https://www.smile.one/merchant/mobilelegends'
     checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
@@ -850,7 +847,7 @@ async def handle_check_role(client, message: Message):
 # ==========================================
 @app.on_message(filters.regex(r"(?i)^(?:msc|br|ph|mlb|mlp|b|p)\s+\d+"))
 async def handle_direct_buy(client, message: Message):
-    if not is_authorized(message):
+    if not await is_authorized(message):
         return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
 
     try:
@@ -898,13 +895,13 @@ async def handle_direct_buy(client, message: Message):
                 items_to_buy = active_packages[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
+                user_wallet = await db.get_reseller(tg_id)
                 user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
                 
                 if user_v_bal < total_required_price:
                     error_text = (
                         f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\n"
-                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
+                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
                         f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency_name}"
                     )
                     await message.reply(error_text)
@@ -943,17 +940,16 @@ async def handle_direct_buy(client, message: Message):
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
                     if currency_name == 'BR':
-                        await asyncio.to_thread(db.update_balance, tg_id, br_amount=-total_spent)
+                        await db.update_balance(tg_id, br_amount=-total_spent)
                     else:
-                        await asyncio.to_thread(db.update_balance, tg_id, ph_amount=-total_spent)
+                        await db.update_balance(tg_id, ph_amount=-total_spent)
                     
-                    new_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
+                    new_wallet = await db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
 
                     final_order_ids = order_ids_str.strip().replace('\n', ', ')
                     
-                    await asyncio.to_thread(
-                        db.save_order,
+                    await db.save_order(
                         tg_id=tg_id,
                         game_id=game_id,
                         zone_id=zone_id,
@@ -997,7 +993,7 @@ async def handle_direct_buy(client, message: Message):
 # ==========================================
 @app.on_message(filters.regex(r"(?i)^mcc\s+\d+"))
 async def handle_mcc_buy(client, message: Message):
-    if not is_authorized(message):
+    if not await is_authorized(message):
         return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     try:
@@ -1029,13 +1025,13 @@ async def handle_mcc_buy(client, message: Message):
                 items_to_buy = MCC_PACKAGES[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                user_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
+                user_wallet = await db.get_reseller(tg_id)
                 user_v_bal = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
                 
                 if user_v_bal < total_required_price:
                     error_text = (
                         f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\n"
-                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄ ᴀᴍᴏᴜɴᴛ: {total_required_price} BR\n"
+                        f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} BR\n"
                         f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} BR"
                     )
                     await message.reply(error_text)
@@ -1073,15 +1069,14 @@ async def handle_mcc_buy(client, message: Message):
                     now = datetime.datetime.now(MMT)
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
-                    await asyncio.to_thread(db.update_balance, tg_id, br_amount=-total_spent)
+                    await db.update_balance(tg_id, br_amount=-total_spent)
                     
-                    new_wallet = await asyncio.to_thread(db.get_reseller, tg_id)
+                    new_wallet = await db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get('br_balance', 0.0) if new_wallet else 0.0
                     
                     final_order_ids = order_ids_str.strip().replace('\n', ', ')
                     
-                    await asyncio.to_thread(
-                        db.save_order,
+                    await db.save_order(
                         tg_id=tg_id,
                         game_id=game_id,
                         zone_id=zone_id,
@@ -1128,7 +1123,7 @@ async def handle_mcc_buy(client, message: Message):
 # ==========================================
 @app.on_message(filters.command("listb") | filters.regex(r"(?i)^\.listb$"))
 async def show_price_list_br(client, message: Message):
-    if not is_authorized(message):
+    if not await is_authorized(message):
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     def generate_list(package_dict):
@@ -1155,7 +1150,7 @@ async def show_price_list_br(client, message: Message):
 # ==========================================
 @app.on_message(filters.command("listp") | filters.regex(r"(?i)^\.listp$"))
 async def show_price_list_ph(client, message: Message):
-    if not is_authorized(message):
+    if not await is_authorized(message):
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     def generate_list(package_dict):
@@ -1179,7 +1174,7 @@ async def show_price_list_ph(client, message: Message):
 # ==========================================
 @app.on_message(filters.command("listmb") | filters.regex(r"(?i)^\.listmb$"))
 async def show_price_list_mcc(client, message: Message):
-    if not is_authorized(message):
+    if not await is_authorized(message):
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     def generate_list(package_dict):
@@ -1228,28 +1223,28 @@ async def auto_calculator(client, message: Message):
         pass
 
 
+
 # ==========================================
-# 10. 💓 HEARTBEAT FUNCTION (ASYNC)
+# 10. 💓 HEARTBEAT FUNCTION
 # ==========================================
 async def keep_cookie_alive():
     while True:
         try:
             await asyncio.sleep(2 * 60) 
-            scraper = get_main_scraper()
+            scraper = await get_main_scraper()
             headers = {
                 'User-Agent': 'Mozilla/5.0',
                 'X-Requested-With': 'XMLHttpRequest',
                 'Origin': 'https://www.smile.one'
             }
-            # Network request သို့မဟုတ် Scraper များကို .to_thread ဖြင့် ခေါ်ရမည်
+            # Network Request များကို Blocking မဖြစ်စေရန် .to_thread သုံးရမည်
             response = await asyncio.to_thread(scraper.get, 'https://www.smile.one/customer/order', headers=headers)
             if "login" not in response.url.lower() and response.status_code == 200:
                 print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 💓 Main Cookie is alive!")
             else:
                 print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}]  Main Cookie expired. Auto-login triggered.")
                 await auto_login_and_get_cookie()
-        except Exception as e: 
-            print(f"Heartbeat Error: {e}")
+        except Exception as e:
             pass
 
 
@@ -1302,7 +1297,7 @@ async def send_help_message(client, message: Message):
     await message.reply(help_text, parse_mode=ParseMode.HTML)
 
 # ==========================================
-# 9. START BOT / DEFAULT COMMAND
+# 9. START BOT / DEFAULT COMMAND (FIXED)
 # ==========================================
 @app.on_message(filters.command("start"))
 async def send_welcome(client, message: Message):
@@ -1317,13 +1312,13 @@ async def send_welcome(client, message: Message):
             
         safe_full_name = full_name.replace('<', '').replace('>', '')
         username_display = f"<a href='tg://user?id={tg_id}'>{safe_full_name}</a>"
-        
-        # 🟢 Premium Emoji မရသော Bot များအတွက် သာမန် Standard Emoji များသာ သုံးထားသည်
-        if is_authorized(message):
+
+        if await is_authorized(message):
             status = "🟢 Aᴄᴛɪᴠᴇ"
         else:
             status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
             
+        # Standard Emojis
         welcome_text = (
             f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n"
             f"👤 Usᴇʀɴᴀᴍᴇ: {username_display}\n"
@@ -1348,14 +1343,18 @@ async def send_welcome(client, message: Message):
 
 
 # ==========================================
-# 10. RUN BOT & BACKGROUND TASKS
+# 10. RUN BOT
 # ==========================================
 if __name__ == '__main__':
-    # 1. Background Task ဖြစ်သော heartbeat ကို Pyrogram Event Loop ထဲ ထည့်ပေးမည်
+    print("Starting Heartbeat & Auto-login thread...")
+    print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်.....")
+    
+    # ပြင်ဆင်ထားသော Database ကို စတင် Setup လုပ်ရန် Event Loop ဖြင့် Run မည်
     loop = asyncio.get_event_loop()
+    loop.run_until_complete(db.init_owner(OWNER_ID))
+    
+    # Heartbeat ကို Background Task အနေဖြင့် ထည့်သွင်းမည်
     loop.create_task(keep_cookie_alive())
 
-    print("Bot is successfully running (Fully Optimized Asyncio & Pyrogram)...")
-    
-    # 2. Pyrogram ကို စတင် Run မည်
+    print("Bot is successfully running (Fully Optimized Asyncio & Pyrogram & Motor)...")
     app.run()

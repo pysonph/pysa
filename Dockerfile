@@ -15,4 +15,4 @@ RUN playwright install chromium
 
 COPY . .
 
-CMD ["python3", "bot.py"]
+CMD ["python3", "pysa.py"]

@@ -1311,20 +1311,26 @@ async def send_welcome(client, message: Message):
             full_name = "User"
             
         safe_full_name = full_name.replace('<', '').replace('>', '')
-        username_display = f"<a href='tg://user?id={tg_id}'>{safe_full_name}</a>"
+        username_display = f'<a href="tg://user?id={tg_id}">{safe_full_name}</a>'
+        
+        # 🟢 Pyrogram အတွက် <emoji id="..."> သုံးရပါမည်
+        EMOJI_1 = "5956355397366320202" # 🥺
+        EMOJI_2 = "5954097490109140119" # 👤
+        EMOJI_3 = "5958289678837746828" # 🆔
+        EMOJI_4 = "5956330306167376831" # 📊
+        EMOJI_5 = "5954078884310814346" # 📞
 
-        if await is_authorized(message):
+        if is_authorized(message):
             status = "🟢 Aᴄᴛɪᴠᴇ"
         else:
             status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
             
-        # Standard Emojis
         welcome_text = (
-            f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n"
-            f"👤 Usᴇʀɴᴀᴍᴇ: {username_display}\n"
-            f"🆔 𝐈𝐃: <code>{tg_id}</code>\n"
-            f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
-            f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+            f"ʜᴇʏ ʙᴀʙʏ <emoji id='{EMOJI_1}'>🥺</emoji>\n\n"
+            f"<emoji id='{EMOJI_2}'>👤</emoji> Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+            f"<emoji id='{EMOJI_3}'>🆔</emoji> 𝐈𝐃: <code>{tg_id}</code>\n"
+            f"<emoji id='{EMOJI_4}'>📊</emoji> Sᴛᴀᴛᴜs: {status}\n\n"
+            f"<emoji id='{EMOJI_5}'>📞</emoji> Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
         
         await message.reply(welcome_text, parse_mode=ParseMode.HTML)

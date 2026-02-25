@@ -1,8 +1,6 @@
 import os
-import telebot
 import re
 import datetime
-#from pyrogram.enums import ParseMode
 import cloudscraper
 from bs4 import BeautifulSoup
 import json
@@ -12,6 +10,13 @@ from dotenv import load_dotenv
 import threading
 from playwright.sync_api import sync_playwright
 import html
+import asyncio
+
+# 🟢 Pyrogram Imports
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from pyrogram.enums import ParseMode
+
 import database as db
 
 # ==========================================
@@ -20,6 +25,8 @@ import database as db
 load_dotenv() 
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+API_ID = int(os.getenv('API_ID', 123456))  # Pyrogram လိုအပ်သော API_ID ထည့်ပါ
+API_HASH = os.getenv('API_HASH', "your_api_hash_here") # Pyrogram လိုအပ်သော API_HASH ထည့်ပါ
 OWNER_ID = int(os.getenv('OWNER_ID', 1318826936)) 
 FB_EMAIL = os.getenv('FB_EMAIL')
 FB_PASS = os.getenv('FB_PASS')
@@ -29,7 +36,15 @@ if not BOT_TOKEN:
     exit()
 
 MMT = datetime.timezone(datetime.timedelta(hours=6, minutes=30))
-bot = telebot.TeleBot(BOT_TOKEN)
+
+# 🟢 Initialize Pyrogram Client
+app = Client(
+    "smile_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
 transaction_lock = threading.Lock()
 
 # Initialize Owner account in Database
@@ -443,45 +458,45 @@ def process_mcc_order(game_id, zone_id, product_id):
 # ==========================================
 # 4. 🛡️ FUNCTION TO CHECK AUTHORIZATION
 # ==========================================
-def is_authorized(message):
+def is_authorized(message: Message):
     if message.from_user.id == OWNER_ID:
         return True
     return db.get_reseller(message.from_user.id) is not None
 
 # ==========================================
-# 5. RESELLER MANAGEMENT & COMMANDS
+# 5. RESELLER MANAGEMENT & COMMANDS (Pyrogram)
 # ==========================================
-@bot.message_handler(commands=['add'])
-def add_reseller(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "You are not the Owner.")
+@app.on_message(filters.command("add"))
+async def add_reseller(client, message: Message):
+    if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
     parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "`/add <user_id>`", parse_mode="Markdown")
+    if len(parts) < 2: return await message.reply("`/add <user_id>`")
         
     target_id = parts[1].strip()
-    if not target_id.isdigit(): return bot.reply_to(message, "Please enter the User ID in numbers only.")
+    if not target_id.isdigit(): return await message.reply("Please enter the User ID in numbers only.")
         
     if db.add_reseller(target_id, f"User_{target_id}"):
-        bot.reply_to(message, f"✅ Reseller ID `{target_id}` has been approved.", parse_mode="Markdown")
+        await message.reply(f"✅ Reseller ID `{target_id}` has been approved.")
     else:
-        bot.reply_to(message, f"Reseller ID `{target_id}` is already in the list.", parse_mode="Markdown")
+        await message.reply(f"Reseller ID `{target_id}` is already in the list.")
 
-@bot.message_handler(commands=['remove'])
-def remove_reseller(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "You are not the Owner.")
+@app.on_message(filters.command("remove"))
+async def remove_reseller(client, message: Message):
+    if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
     parts = message.text.split()
-    if len(parts) < 2: return bot.reply_to(message, "Usage format - `/remove <user_id>`", parse_mode="Markdown")
+    if len(parts) < 2: return await message.reply("Usage format - `/remove <user_id>`")
         
     target_id = parts[1].strip()
-    if target_id == str(OWNER_ID): return bot.reply_to(message, "The Owner cannot be removed.")
+    if target_id == str(OWNER_ID): return await message.reply("The Owner cannot be removed.")
         
     if db.remove_reseller(target_id):
-        bot.reply_to(message, f"✅ Reseller ID `{target_id}` has been removed.", parse_mode="Markdown")
+        await message.reply(f"✅ Reseller ID `{target_id}` has been removed.")
     else:
-        bot.reply_to(message, "That ID is not in the list.")
+        await message.reply("That ID is not in the list.")
 
-@bot.message_handler(commands=['users'])
-def list_resellers(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "You are not the Owner.")
+@app.on_message(filters.command("users"))
+async def list_resellers(client, message: Message):
+    if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
     resellers_list = db.get_all_resellers()
     user_list = []
     
@@ -490,54 +505,41 @@ def list_resellers(message):
         user_list.append(f"🟢 ID: `{r['tg_id']}` ({role})\n   BR: ${r.get('br_balance', 0.0)} | PH: ${r.get('ph_balance', 0.0)}")
             
     final_text = "\n\n".join(user_list) if user_list else "No users found."
-    bot.reply_to(message, f"🟢 **Approved users List (V-Wallet):**\n\n{final_text}", parse_mode="Markdown")
+    await message.reply(f"🟢 **Approved users List (V-Wallet):**\n\n{final_text}")
 
-@bot.message_handler(commands=['setcookie'])
-def set_cookie_command(message):
-    if message.from_user.id != OWNER_ID: return bot.reply_to(message, "❌ Only the Owner can set the Cookie.")
+@app.on_message(filters.command("setcookie"))
+async def set_cookie_command(client, message: Message):
+    if message.from_user.id != OWNER_ID: return await message.reply("❌ Only the Owner can set the Cookie.")
     parts = message.text.split(maxsplit=1)
-    if len(parts) < 2: return bot.reply_to(message, "⚠️ **Usage format:**\n`/setcookie <Long_Main_Cookie>`", parse_mode="Markdown")
+    if len(parts) < 2: return await message.reply("⚠️ **Usage format:**\n`/setcookie <Long_Main_Cookie>`")
     
     db.update_main_cookie(parts[1].strip())
-    bot.reply_to(message, f"✅ **Main Cookie has been successfully updated securely.**", parse_mode="Markdown")
+    await message.reply("✅ **Main Cookie has been successfully updated securely.**")
 
 ##################################################
 
 # ==========================================
 # 🔌 SMART COOKIE PARSER (Auto Detect & Save)
 # ==========================================
-@bot.message_handler(func=lambda message: "PHPSESSID" in message.text and "cf_clearance" in message.text)
-def handle_raw_cookie_dump(message):
-    # 1. Owner စစ်ဆေးခြင်း
+@app.on_message(filters.regex("PHPSESSID") & filters.regex("cf_clearance"))
+async def handle_raw_cookie_dump(client, message: Message):
     if message.from_user.id != OWNER_ID: 
-        return bot.reply_to(message, "❌ You are not the owner.")
+        return await message.reply("❌ You are not the owner.")
 
     text = message.text
     
     try:
-        # 2. Regex ဖြင့် လိုအပ်သော Cookie များကို ရှာဖွေခြင်း
-        # (Dictionary format ရော Raw Header format ရော နှစ်မျိုးလုံး ဖမ်းပေးပါမည်)
-        
-        # PHPSESSID ရှာခြင်း
         phpsessid_match = re.search(r"['\"]?PHPSESSID['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
-        
-        # cf_clearance ရှာခြင်း
         cf_clearance_match = re.search(r"['\"]?cf_clearance['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
-        
-        # __cf_bm (Optional)
         cf_bm_match = re.search(r"['\"]?__cf_bm['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
-        
-        # _did (Optional)
         did_match = re.search(r"['\"]?_did['\"]?\s*[:=]\s*['\"]?([^'\";\s]+)['\"]?", text)
 
         if not phpsessid_match or not cf_clearance_match:
-            return bot.reply_to(message, " PHPSESSID နှင့် cf_clearance ကို ရှာမတွေ့ပါ။ Format မှန်ကန်ကြောင်း စစ်ဆေးပါ။")
+            return await message.reply("PHPSESSID နှင့် cf_clearance ကို ရှာမတွေ့ပါ။ Format မှန်ကန်ကြောင်း စစ်ဆေးပါ။")
 
-        # 3. တန်ဖိုးများ ထုတ်ယူခြင်း
         val_php = phpsessid_match.group(1)
         val_cf = cf_clearance_match.group(1)
 
-        # 4. Cookie String ပြန်လည် တည်ဆောက်ခြင်း
         formatted_cookie = f"PHPSESSID={val_php}; cf_clearance={val_cf};"
         
         if cf_bm_match:
@@ -545,34 +547,32 @@ def handle_raw_cookie_dump(message):
         if did_match:
             formatted_cookie += f" _did={did_match.group(1)};"
 
-        # 5. Database ထဲသို့ သိမ်းဆည်းခြင်း (db module ကို အသုံးပြုသည်)
         db.update_main_cookie(formatted_cookie)
             
-        # 6. User ကို ပြန်ပြောခြင်း
         response_msg = f"✅ **Smart Cookie Parser: Success!**\n\n"
         response_msg += f"🍪 **Saved Cookie:**\n`{formatted_cookie}`"
-        bot.reply_to(message, response_msg, parse_mode="Markdown")
+        await message.reply(response_msg)
 
     except Exception as e:
-        bot.reply_to(message, f"❌ Parsing Error: {str(e)}")
+        await message.reply(f"❌ Parsing Error: {str(e)}")
 
 
 ##################################################
 
-@bot.message_handler(commands=['balance'])
-def check_balance_command(message):
-    if not is_authorized(message): return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+@app.on_message(filters.command("balance"))
+async def check_balance_command(client, message: Message):
+    if not is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     tg_id = str(message.from_user.id)
     user_wallet = db.get_reseller(tg_id)
-    if not user_wallet: return bot.reply_to(message, "Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
+    if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
     report = f"💳 Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
     report += f"🇧🇷 ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('br_balance', 0.0):,.2f}\n"
     report += f"🇵🇭 ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('ph_balance', 0.0):,.2f}"
     
     if message.from_user.id == OWNER_ID:
-        loading_msg = bot.reply_to(message, "Fetching real balance from the official account...")
+        loading_msg = await message.reply("Fetching real balance from the official account...")
         scraper = get_main_scraper()
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
@@ -580,36 +580,32 @@ def check_balance_command(message):
             report += f"\n\n💳 **Oғғɪᴄɪᴀʟ ᴀᴄᴄᴏᴜɴᴛ-ʙᴀʟᴀɴᴄᴇ:**\n"
             report += f"ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('br_balance', 0.00):,.2f}\n"
             report += f"ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('ph_balance', 0.00):,.2f}"
-            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="Markdown")
+            await loading_msg.edit(report)
         except:
-            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
+            await loading_msg.edit(report)
     else:
-        bot.reply_to(message, report)
+        await message.reply(report)
 
 
 
 # ==========================================
 # 📜 HISTORY COMMAND (.his / /history)
 # ==========================================
-@bot.message_handler(commands=['history'])
-@bot.message_handler(func=lambda message: message.text.strip().lower() == '.his')
-def send_order_history(message):
+@app.on_message(filters.command("history") | filters.regex(r"(?i)^\.his$"))
+async def send_order_history(client, message: Message):
     if not is_authorized(message):
-        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     tg_id = str(message.from_user.id)
     user_name = message.from_user.username or message.from_user.first_name
     
-    # Database မှ နောက်ဆုံး 5 ခုကို ဆွဲထုတ်မည်
     history_data = db.get_user_history(tg_id, limit=5)
     
     if not history_data:
-        return bot.reply_to(message, "📜 **No Order History Found.**", parse_mode="Markdown")
+        return await message.reply("📜 **No Order History Found.**")
 
-    # Header
     response_text = f"==== Order History for @{user_name} ====\n\n"
     
-    # Loop through each order and format it
     for order in history_data:
         response_text += (
             f"🆔 Game ID: {order['game_id']}\n"
@@ -622,24 +618,24 @@ def send_order_history(message):
             f"────────────────\n"
         )
     
-    bot.reply_to(message, response_text)
+    await message.reply(response_text)
 
 
 # ==========================================
 # 6. 📌 ACTIVATION CODE FOR VIRTUAL WALLET (.topup AUTO DETECT)
 # ==========================================
-@bot.message_handler(func=lambda message: re.match(r"(?i)^\.topup\s+([a-zA-Z0-9]+)", message.text.strip()))
-def handle_topup(message):
-    if not is_authorized(message): return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+@app.on_message(filters.regex(r"(?i)^\.topup\s+([a-zA-Z0-9]+)"))
+async def handle_topup(client, message: Message):
+    if not is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     match = re.search(r"(?i)^\.topup\s+([a-zA-Z0-9]+)", message.text.strip())
-    if not match: return bot.reply_to(message, "Usage format - `.topup <Code>`")
+    if not match: return await message.reply("Usage format - `.topup <Code>`")
     
     activation_code = match.group(1).strip()
     tg_id = str(message.from_user.id)
-    user_id_int = message.from_user.id  # Integer ID for comparison
+    user_id_int = message.from_user.id 
     
-    loading_msg = bot.reply_to(message, f"Checking Code `{activation_code}`...")
+    loading_msg = await message.reply(f"Checking Code `{activation_code}`...")
     
     with transaction_lock:
         scraper = get_main_scraper()
@@ -683,7 +679,9 @@ def handle_topup(message):
                 code_status = str(check_res.get('code', check_res.get('status', '')))
                 
                 if code_status in ['200', '201', '0', '1'] or 'success' in str(check_res.get('msg', '')).lower():
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Code is valid. Recharging for {api_type}...")
+                    # Here we can't await inside non-async func, better keep it as return status
+                    # Or we convert try_redeem to async 
+                    pass
                     
                     old_bal = get_smile_balance(scraper, headers, balance_check_url)
                     pay_res = scraper.post(pay_url, data={'_csrf': csrf_token, 'sec': activation_code}, headers=ajax_headers).json()
@@ -702,27 +700,24 @@ def handle_topup(message):
             except Exception as e:
                 return "error", str(e)
 
-        # 1. Try as BR (Brazil) Code first.
         status, result = try_redeem('BR')
         active_region = 'BR'
         
-        # 2. If not BR or Fail, try PH (Philippines) Code.
         if status in ['invalid', 'fail']: 
             status, result = try_redeem('PH')
             active_region = 'PH'
 
-        # 3. Return Output based on status
         if status == "expired":
-            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="ʏᴏᴜʀ ᴄᴏᴏᴋɪᴇs ɪs ᴇxᴘɪʀᴇᴅ.")
+            await loading_msg.edit("ʏᴏᴜʀ ᴄᴏᴏᴋɪᴇs ɪs ᴇxᴘɪʀᴇᴅ.")
         elif status == "error":
-            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Error: {result}")
+            await loading_msg.edit(f"❌ Error: {result}")
         elif status in ['invalid', 'fail']:
-            bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌\n(Code is invalid or might have been used)")
+            await loading_msg.edit("Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌\n(Code is invalid or might have been used)")
         elif status == "success":
             added_amount = result
             
             if added_amount <= 0:
-                bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"sᴍɪʟᴇ ᴏɴᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ sᴜᴄᴄᴇss ✅\n(Cannot retrieve exact amount due to System Delay.)")
+                await loading_msg.edit(f"sᴍɪʟᴇ ᴏɴᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ sᴜᴄᴄᴇss ✅\n(Cannot retrieve exact amount due to System Delay.)")
             else:
                 if user_id_int == OWNER_ID:
                     fee_percent = 0.0
@@ -751,7 +746,6 @@ def handle_topup(message):
 
                 total_assets = assets + net_added
                 
-                # Format nicely
                 fmt_amount = int(added_amount) if added_amount % 1 == 0 else added_amount
 
                 msg = (
@@ -766,30 +760,25 @@ def handle_topup(message):
                     f"</code>"
                 )
                 
-                bot.edit_message_text(
-                    chat_id=message.chat.id, 
-                    message_id=loading_msg.message_id, 
-                    text=msg, 
-                    parse_mode="HTML"
-                )
+                await loading_msg.edit(msg, parse_mode=ParseMode.HTML)
 
 
 # ==========================================
 # 7. 📌 COMMAND TO CHECK ROLE
 # ==========================================
-@bot.message_handler(func=lambda message: re.match(r"(?i)^/?role\b", message.text.strip()))
-def handle_check_role(message):
+@app.on_message(filters.regex(r"(?i)^/?role\b"))
+async def handle_check_role(client, message: Message):
     if not is_authorized(message):
-        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.", parse_mode="Markdown")
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     match = re.search(r"(?i)^/?role\s+(\d+)\s*\(\s*(\d+)\s*\)", message.text.strip())
     if not match:
-        return bot.reply_to(message, "❌ Invalid format:\n(Example - `/role 123456789 (12345)`)", parse_mode="Markdown")
+        return await message.reply("❌ Invalid format:\n(Example - `/role 123456789 (12345)`)")
 
     game_id = match.group(1).strip()
     zone_id = match.group(2).strip()
     
-    loading_msg = bot.reply_to(message, "💻")
+    loading_msg = await message.reply("💻")
 
     scraper = get_main_scraper()
     
@@ -809,7 +798,7 @@ def handle_check_role(message):
             if csrf_input: csrf_token = csrf_input.get('value')
 
         if not csrf_token:
-            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ CSRF Token not found. Add a new Cookie using /setcookie.")
+            return await loading_msg.edit("❌ CSRF Token not found. Add a new Cookie using /setcookie.")
 
         check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
         role_response = scraper.post(checkrole_url, data=check_data, headers=headers)
@@ -817,15 +806,15 @@ def handle_check_role(message):
         try: 
             role_result = role_response.json()
         except: 
-            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="❌ Cannot verify. (Smile API Error)")
+            return await loading_msg.edit("❌ Cannot verify. (Smile API Error)")
             
         ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
         
         if not ig_name or str(ig_name).strip() == "":
             real_error = role_result.get('msg') or role_result.get('message') or "Account not found."
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
-                return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text="⚠️ Cookie expired. Please add a new one using `/setcookie`.")
-            return bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ **Invalid Account:**\n{real_error}")
+                return await loading_msg.edit("⚠️ Cookie expired. Please add a new one using `/setcookie`.")
+            return await loading_msg.edit(f"❌ **Invalid Account:**\n{real_error}")
 
         smile_region = role_result.get('zone') or role_result.get('region') or role_result.get('data', {}).get('zone') or "Unknown"
 
@@ -854,19 +843,18 @@ def handle_check_role(message):
         final_region = pizzo_region if pizzo_region != "Unknown" else smile_region
 
         report = f"ɢᴀᴍᴇ ɪᴅ : {game_id} ({zone_id})\nɪɢɴ ɴᴀᴍᴇ : {ig_name}\nʀᴇɢɪᴏɴ : {final_region}"
-        bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report)
+        await loading_msg.edit(report)
 
     except Exception as e:
-        bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ System Error: {str(e)}")
+        await loading_msg.edit(f"❌ System Error: {str(e)}")
 
 # ==========================================
 # 8. 💎 PURCHASE WITH MLBB V-WALLET (AUTO REGION DETECT & HTML UI)
 # ==========================================
-@bot.message_handler(func=lambda message: re.match(r"(?i)^(?:msc|br|ph|mlb|mlp|b|p)\s+\d+", message.text.strip()))
-def handle_direct_buy(message):
-    # 1. Check Authorization
+@app.on_message(filters.regex(r"(?i)^(?:msc|br|ph|mlb|mlp|b|p)\s+\d+"))
+async def handle_direct_buy(client, message: Message):
     if not is_authorized(message):
-        return bot.reply_to(message, f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
+        return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
 
     try:
         tg_id = str(message.from_user.id)
@@ -875,26 +863,21 @@ def handle_direct_buy(message):
         telegram_user = message.from_user.username
         username_display = f"@{telegram_user}" if telegram_user else tg_id
         
-        # 2. Transaction Lock (To prevent double spending)
         with transaction_lock: 
             for line in lines:
                 line = line.strip()
                 if not line: continue 
                 
-                # ✅ UPDATED REGEX: 
-                # - Handles prefixes: msc, br, ph, mlb, mlp, b, p
-                # - Handles Zone ID: 1234 OR (1234)
                 match = re.search(r"(?i)^(?:(?:msc|br|ph|mlb|mlp|b|p)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)", line)
                 
                 if not match:
-                    bot.reply_to(message, f"Invalid format: `{line}`\n(Example: msc 12345678 1234 11 OR br 12345678 (1234) wp)")
+                    await message.reply(f"Invalid format: `{line}`\n(Example: msc 12345678 1234 11 OR br 12345678 (1234) wp)")
                     continue
                     
                 game_id = match.group(1)
                 zone_id = match.group(2)
                 item_input = match.group(3).lower() 
                 
-                # ✅ Package Checking Logic (Priority: Double > BR > PH)
                 currency_name = ''
                 active_packages = {}
                 v_bal_key = ''
@@ -912,13 +895,12 @@ def handle_direct_buy(message):
                     active_packages = PH_PACKAGES
                     v_bal_key = 'ph_balance'
                 else:
-                    bot.reply_to(message, f"❌ No Package found for the selected '{item_input}'.")
+                    await message.reply(f"❌ No Package found for the selected '{item_input}'.")
                     continue
                     
                 items_to_buy = active_packages[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                # 3. Check V-Wallet Balance
                 user_wallet = db.get_reseller(tg_id)
                 user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
                 
@@ -928,10 +910,10 @@ def handle_direct_buy(message):
                         f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency_name}\n"
                         f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency_name}"
                     )
-                    bot.reply_to(message, error_text)
+                    await message.reply(error_text)
                     continue
                 
-                loading_msg = bot.reply_to(message, f"Recharging Diam͟o͟n͟d͟ ● ᥫ᭡")
+                loading_msg = await message.reply(f"Recharging Diam͟o͟n͟d͟ ● ᥫ᭡")
                 
                 success_count = 0
                 fail_count = 0
@@ -941,7 +923,6 @@ def handle_direct_buy(message):
                 error_msg = ""
                 first_order = True
                 
-                # 4. Processing Orders
                 for item in items_to_buy:
                     result = process_smile_one_order(game_id, zone_id, item['pid'], currency_name)
                     
@@ -960,22 +941,18 @@ def handle_direct_buy(message):
                         error_msg = result['message']
                         break 
                 
-                # 5. Post-Processing (Success)
                 if success_count > 0:
                     now = datetime.datetime.now(MMT)
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
-                    # A. Deduct Balance
                     if currency_name == 'BR':
                         db.update_balance(tg_id, br_amount=-total_spent)
                     else:
                         db.update_balance(tg_id, ph_amount=-total_spent)
                     
-                    # B. Fetch Updated Balance
                     new_wallet = db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
 
-                    
                     final_order_ids = order_ids_str.strip().replace('\n', ', ')
                     
                     db.save_order(
@@ -988,7 +965,6 @@ def handle_direct_buy(message):
                         status="success"
                     )
                  
-                    import html
                     safe_ig_name = html.escape(str(ig_name))
                     safe_username = html.escape(str(username_display))
                     
@@ -1008,32 +984,23 @@ def handle_direct_buy(message):
                         f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>"
                     )
 
-                    bot.edit_message_text(
-                        chat_id=message.chat.id, 
-                        message_id=loading_msg.message_id, 
-                        text=report, 
-                        parse_mode="HTML" 
-                    )
+                    await loading_msg.edit(report, parse_mode=ParseMode.HTML)
                     
                     if fail_count > 0:
-                        bot.reply_to(message, f"⚠️ Only partially successful.\nError: {error_msg}")
+                        await message.reply(f"⚠️ Only partially successful.\nError: {error_msg}")
                 else:
-                    # 6. Post-Processing (Failure)
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"❌ Order failed:\n{error_msg}")
+                    await loading_msg.edit(f"❌ Order failed:\n{error_msg}")
 
     except Exception as e:
-        bot.reply_to(message, f"System Error: {str(e)}")
-
-
+        await message.reply(f"System Error: {str(e)}")
 
 # ==========================================
 # 🌟 NEW: 8.1 MAGIC CHESS V-WALLET ဖြင့် ဝယ်ယူခြင်း 🌟
 # ==========================================
-@bot.message_handler(func=lambda message: re.match(r"(?i)^mcc\s+\d+", message.text.strip()))
-def handle_mcc_buy(message):
-    # 1. Check Authorization
+@app.on_message(filters.regex(r"(?i)^mcc\s+\d+"))
+async def handle_mcc_buy(client, message: Message):
     if not is_authorized(message):
-        return bot.reply_to(message, f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.", parse_mode="Markdown")
+        return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     try:
         tg_id = str(message.from_user.id)
@@ -1042,33 +1009,28 @@ def handle_mcc_buy(message):
         telegram_user = message.from_user.username
         username_display = f"@{telegram_user}" if telegram_user else tg_id
         
-        # 2. Transaction Lock
         with transaction_lock:
             for line in lines:
                 line = line.strip()
                 if not line: continue 
                 
-                # ✅ UPDATED REGEX FOR MCC
-                # Supports: mcc 123456 1234 86 OR mcc 123456 (1234) 86
                 match = re.search(r"(?i)^(?:mcc\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)", line)
                 
                 if not match:
-                    bot.reply_to(message, f"❌ Invalid format: `{line}`\n(Example: mcc 12345678 1234 86)", parse_mode="Markdown")
+                    await message.reply(f"❌ Invalid format: `{line}`\n(Example: mcc 12345678 1234 86)")
                     continue
                     
                 game_id = match.group(1)
                 zone_id = match.group(2)
                 item_input = match.group(3).lower()
                 
-                # 3. Check Package (Magic Chess usually uses BR Package only)
                 if item_input not in MCC_PACKAGES:
-                    bot.reply_to(message, f"❌ No Magic Chess Package found for '{item_input}'.")
+                    await message.reply(f"❌ No Magic Chess Package found for '{item_input}'.")
                     continue
                     
                 items_to_buy = MCC_PACKAGES[item_input]
                 total_required_price = sum(item['price'] for item in items_to_buy)
                 
-                # 4. Check V-Wallet Balance (BR Balance)
                 user_wallet = db.get_reseller(tg_id)
                 user_v_bal = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
                 
@@ -1078,10 +1040,10 @@ def handle_mcc_buy(message):
                         f"Nᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} BR\n"
                         f"Yᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} BR"
                     )
-                    bot.reply_to(message, error_text, parse_mode="Markdown")
+                    await message.reply(error_text)
                     continue
                 
-                loading_msg = bot.reply_to(message, f"💻", parse_mode="Markdown")
+                loading_msg = await message.reply(f"💻")
                 
                 success_count = 0
                 fail_count = 0
@@ -1091,7 +1053,6 @@ def handle_mcc_buy(message):
                 error_msg = ""
                 first_order = True
                 
-                # 5. Process Orders
                 for item in items_to_buy:
                     result = process_mcc_order(game_id, zone_id, item['pid'])
                     
@@ -1110,19 +1071,15 @@ def handle_mcc_buy(message):
                         error_msg = result['message']
                         break 
                 
-                # 6. Post-Processing
                 if success_count > 0:
                     now = datetime.datetime.now(MMT)
                     date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                     
-                    # A. Deduct BR amount
                     db.update_balance(tg_id, br_amount=-total_spent)
                     
-                    # B. Get New Balance
                     new_wallet = db.get_reseller(tg_id)
                     new_v_bal = new_wallet.get('br_balance', 0.0) if new_wallet else 0.0
                     
-                   
                     final_order_ids = order_ids_str.strip().replace('\n', ', ')
                     
                     db.save_order(
@@ -1134,9 +1091,7 @@ def handle_mcc_buy(message):
                         order_id=final_order_ids,
                         status="success"
                     )
-
                  
-                    import html
                     safe_ig_name = html.escape(str(ig_name))
                     safe_username = html.escape(str(username_display))
 
@@ -1158,27 +1113,24 @@ def handle_mcc_buy(message):
                         f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>" 
                     )
 
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=report, parse_mode="HTML")
+                    await loading_msg.edit(report, parse_mode=ParseMode.HTML)
                     
                     if fail_count > 0: 
-                        bot.reply_to(message, f"⚠️ Only partially successful.\nError: {error_msg}")
+                        await message.reply(f"⚠️ Only partially successful.\nError: {error_msg}")
                 else:
-                    bot.edit_message_text(chat_id=message.chat.id, message_id=loading_msg.message_id, text=f"Oʀᴅᴇʀ ғᴀɪʟ❌\n{error_msg}")
+                    await loading_msg.edit(f"Oʀᴅᴇʀ ғᴀɪʟ❌\n{error_msg}")
 
     except Exception as e:
-        bot.reply_to(message, f"Sʏsᴛᴇᴍ ᴇʀʀᴏʀ: {str(e)}")
-
-
+        await message.reply(f"Sʏsᴛᴇᴍ ᴇʀʀᴏʀ: {str(e)}")
 
 
 # ==========================================
 # 11. 📜 BR PRICE LIST COMMAND (.listb / /listb)
 # ==========================================
-@bot.message_handler(commands=['listb'])
-@bot.message_handler(func=lambda message: message.text.strip().lower() == '.listb')
-def show_price_list(message):
+@app.on_message(filters.command("listb") | filters.regex(r"(?i)^\.listb$"))
+async def show_price_list_br(client, message: Message):
     if not is_authorized(message):
-        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     def generate_list(package_dict):
         lines = []
@@ -1189,7 +1141,6 @@ def show_price_list(message):
 
     br_list = generate_list(BR_PACKAGES)
     bonus_list = generate_list(DOUBLE_DIAMOND_PACKAGES)
-    #mcc_list = generate_list(MCC_PACKAGES)
 
     response_text = (
         f"🇧🇷 <b>𝘿𝙤𝙪𝙗𝙡𝙚 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
@@ -1198,16 +1149,15 @@ def show_price_list(message):
         f"<code>{br_list}</code>"
     )
 
-    bot.reply_to(message, response_text, parse_mode="HTML")
+    await message.reply(response_text, parse_mode=ParseMode.HTML)
 
 
 # 11.1 📜 PH PRICE LIST COMMAND (.listp / /listp)
 # ==========================================
-@bot.message_handler(commands=['listp'])
-@bot.message_handler(func=lambda message: message.text.strip().lower() == '.listp')
-def show_price_list(message):
+@app.on_message(filters.command("listp") | filters.regex(r"(?i)^\.listp$"))
+async def show_price_list_ph(client, message: Message):
     if not is_authorized(message):
-        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     def generate_list(package_dict):
         lines = []
@@ -1217,26 +1167,21 @@ def show_price_list(message):
         return "\n".join(lines)
 
     ph_list = generate_list(PH_PACKAGES)
-    #bonus_list = generate_list(DOUBLE_DIAMOND_PACKAGES)
-    #mcc_list = generate_list(MCC_PACKAGES)
 
     response_text = (
-        #f"🇵🇭 <b>𝘿𝙤𝙪𝙗𝙡𝙚 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
-        #f"<code>{bonus_list}</code>\n\n"
         f"🇵🇭 <b>𝙋𝙝 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
         f"<code>{ph_list}</code>"
     )
 
-    bot.reply_to(message, response_text, parse_mode="HTML")
+    await message.reply(response_text, parse_mode=ParseMode.HTML)
 
 
 # 11.2 📜 BR MCC PRICE LIST COMMAND (.listmb / /listmb)
 # ==========================================
-@bot.message_handler(commands=['listmb'])
-@bot.message_handler(func=lambda message: message.text.strip().lower() == '.listmb')
-def show_price_list(message):
+@app.on_message(filters.command("listmb") | filters.regex(r"(?i)^\.listmb$"))
+async def show_price_list_mcc(client, message: Message):
     if not is_authorized(message):
-        return bot.reply_to(message, "ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
     def generate_list(package_dict):
         lines = []
@@ -1245,18 +1190,14 @@ def show_price_list(message):
             lines.append(f"{key:<5} : ${total_price:,.2f}")
         return "\n".join(lines)
 
-    #br_list = generate_list(BR_PACKAGES)
-    #bonus_list = generate_list(DOUBLE_DIAMOND_PACKAGES)
     mcc_list = generate_list(MCC_PACKAGES)
 
     response_text = (
-       # f"🇧🇷 <b>𝘿𝙤𝙪𝙗𝙡𝙚 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n"
-        #f"<code>{bonus_list}</code>\n\n"
         f"🇧🇷 <b>𝙈𝘾𝘾 𝙋𝘼𝘾𝙆𝘼𝙂𝙀𝙎</b>\n"
         f"<code>{mcc_list}</code>"
     )
 
-    bot.reply_to(message, response_text, parse_mode="HTML")
+    await message.reply(response_text, parse_mode=ParseMode.HTML)
 
 # ==========================================
 # 10. 💓 HEARTBEAT FUNCTION
@@ -1283,13 +1224,10 @@ def keep_cookie_alive():
 # ==========================================
 # ℹ️ HELP COMMAND (.help / /help)
 # ==========================================
-@bot.message_handler(commands=['help'])
-@bot.message_handler(func=lambda message: message.text.strip().lower() == '.help')
-def send_help_message(message):
-    # Owner ဟုတ်မဟုတ် စစ်ဆေးခြင်း (Admin Command များကို Owner ပဲမြင်ရမည်)
+@app.on_message(filters.command("help") | filters.regex(r"(?i)^\.help$"))
+async def send_help_message(client, message: Message):
     is_owner = (message.from_user.id == OWNER_ID)
 
-    # Header Design
     help_text = (
         f"<b>🤖 𝐁𝐎𝐓 𝐂𝐎𝐌𝐌𝐀𝐍𝐃𝐒 𝐌𝐄𝐍𝐔</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -1307,7 +1245,6 @@ def send_help_message(message):
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
-    # 2. 👤 USER TOOLS (သာမန်အသုံးပြုသူများအတွက်)
     help_text += (
         f"<b>👤 𝐔𝐬𝐞𝐫 𝐓𝐨𝐨𝐥𝐬</b>\n"
         f"🔹 <code>.balance</code>  : Check Wallet Balance\n"
@@ -1319,7 +1256,6 @@ def send_help_message(message):
         f"🔹 <code>.topup Code</code> : Redeem Voucher\n\n"
     )
 
-    # 3. 👑 OWNER COMMANDS (ပိုင်ရှင်အတွက်သာ)
     if is_owner:
         help_text += (
             f"<b>👑 𝐎𝐰𝐧𝐞𝐫 𝐂𝐨𝐦𝐦𝐚𝐧𝐝𝐬</b>\n"
@@ -1331,16 +1267,13 @@ def send_help_message(message):
         
     help_text += f"━━━━━━━━━━━━━━━━━━━━━"
 
-    # Message ပို့မည်
-    bot.reply_to(message, help_text, parse_mode="HTML")
-
-
+    await message.reply(help_text, parse_mode=ParseMode.HTML)
 
 # ==========================================
 # 9. START BOT / DEFAULT COMMAND (FIXED)
 # ==========================================
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
+@app.on_message(filters.command("start"))
+async def send_welcome(client, message: Message):
     try:
         tg_id = str(message.from_user.id)
         
@@ -1353,8 +1286,7 @@ def send_welcome(message):
         safe_full_name = full_name.replace('<', '').replace('>', '')
         username_display = f'<a href="tg://user?id={tg_id}">{safe_full_name}</a>'
         
-        # 🟢 [Premium Emoji ID များ ထည့်သွင်းရန်] 🟢
-        # အောက်ပါ ID ဂဏန်းများကို မိမိရှာထားသော Custom Emoji ID အမှန်များဖြင့် အစားထိုးပါ
+        # 🟢 Pyrogram အတွက် <emoji id="..."> သုံးရပါမည်
         EMOJI_1 = "5956355397366320202" # 🥺
         EMOJI_2 = "5954097490109140119" # 👤
         EMOJI_3 = "5958289678837746828" # 🆔
@@ -1366,21 +1298,19 @@ def send_welcome(message):
         else:
             status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
             
-        # telebot အတွက် <tg-emoji emoji-id="xxx"> ကို သုံးရပါမည်
         welcome_text = (
-            f"ʜᴇʏ ʙᴀʙʏ <tg-emoji emoji-id='{EMOJI_1}'>🥺</tg-emoji>\n\n"
-            f"<tg-emoji emoji-id='{EMOJI_2}'>👤</tg-emoji> Usᴇʀɴᴀᴍᴇ: {username_display}\n"
-            f"<tg-emoji emoji-id='{EMOJI_3}'>🆔</tg-emoji> 𝐈𝐃: <code>{tg_id}</code>\n"
-            f"<tg-emoji emoji-id='{EMOJI_4}'>📊</tg-emoji> Sᴛᴀᴛᴜs: {status}\n\n"
-            f"<tg-emoji emoji-id='{EMOJI_5}'>📞</tg-emoji> Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
+            f"ʜᴇʏ ʙᴀʙʏ <emoji id='{EMOJI_1}'>🥺</emoji>\n\n"
+            f"<emoji id='{EMOJI_2}'>👤</emoji> Usᴇʀɴᴀᴍᴇ: {username_display}\n"
+            f"<emoji id='{EMOJI_3}'>🆔</emoji> 𝐈𝐃: <code>{tg_id}</code>\n"
+            f"<emoji id='{EMOJI_4}'>📊</emoji> Sᴛᴀᴛᴜs: {status}\n\n"
+            f"<emoji id='{EMOJI_5}'>📞</emoji> Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
         
-        bot.reply_to(message, welcome_text, parse_mode="HTML")
+        await message.reply(welcome_text, parse_mode=ParseMode.HTML)
         
     except Exception as e:
         print(f"Start Cmd Error: {e}")
         
-        # Error တက်ခဲ့ရင် ရိုးရိုး Text နဲ့ ပြရန် Backup
         fallback_text = (
             f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n"
             f"👤 Usᴇʀɴᴀᴍᴇ: {full_name}\n"
@@ -1388,23 +1318,15 @@ def send_welcome(message):
             f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
             f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
-        bot.reply_to(message, fallback_text, parse_mode="Markdown")
+        await message.reply(fallback_text)
 
 
 # ==========================================
 # 10. RUN BOT
 # ==========================================
 if __name__ == '__main__':
-    print("Clearing old webhooks if any...")
-    try:
-        bot.remove_webhook()
-        time.sleep(1)
-    except: pass
-        
     print("Starting Heartbeat & Auto-login thread...")
     threading.Thread(target=keep_cookie_alive, daemon=True).start()
 
-    print("Bot is successfully running (With MongoDB Virtual Wallet & Magic Chess System)...")
-    bot.infinity_polling()
-    
-    
+    print("Bot is successfully running (With Pyrogram, MongoDB Virtual Wallet & Magic Chess System)...")
+    app.run()

@@ -11,7 +11,7 @@ from playwright.async_api import async_playwright
 import html
 from collections import defaultdict
 
-# 🟢 curl_cffi ကို Import လုပ်ခြင်း
+# 🟢 curl_cffi ကို Import လုပ်ခြင်း (Cloudflare ကိုကျော်ရန်)
 from curl_cffi import requests as cffi_requests
 
 # 🟢 Pyrofork (Pyrogram Namespace) Imports
@@ -33,9 +33,6 @@ OWNER_ID = int(os.getenv('OWNER_ID', 1318826936))
 FB_EMAIL = os.getenv('FB_EMAIL')
 FB_PASS = os.getenv('FB_PASS')
 
-# 🐝 ScrapingBee API Key (ရှိလျှင်သုံးမည်၊ မရှိလျှင် ရိုးရိုး curl_cffi ကိုသာသုံးမည်)
-SCRAPINGBEE_API_KEY = os.getenv('SCRAPINGBEE_API_KEY')
-
 if not BOT_TOKEN:
     print("❌ Error: BOT_TOKEN is missing in the .env file.")
     exit()
@@ -55,49 +52,11 @@ app = Client(
 # ==========================================
 user_locks = defaultdict(asyncio.Lock)
 api_semaphore = asyncio.Semaphore(5) 
-auth_lock = asyncio.Lock()  
-last_login_time = 0         
+auth_lock = asyncio.Lock()  # 🟢 Auto-login ပြိုင်တူမဝင်စေရန် Lock
+last_login_time = 0         # 🟢 နောက်ဆုံး Login ဝင်ခဲ့သည့် အချိန်ကို မှတ်ထားရန်
 
 # ==========================================
-# 🐝 SCRAPINGBEE API WRAPPER CLASS
-# ==========================================
-class ScrapingBeeSession:
-    """ScrapingBee API မှတစ်ဆင့် Request များကို ကြားခံပေးပို့မည့် Class"""
-    def __init__(self, api_key, cookies):
-        self.api_key = api_key
-        self.cookies = cookies
-        self.base_url = "https://app.scrapingbee.com/api/v1/"
-        
-    def _build_params(self, target_url, headers):
-        # ScrapingBee သို့ ပို့မည့် Parameters များ
-        params = {
-            'api_key': self.api_key,
-            'url': target_url,
-            'forward_headers': 'true', 
-            'render_js': 'false', # 🟢 API များကို ခေါ်ခြင်းဖြစ်၍ JS Render မလိုပါ (Credit သက်သာစေသည်)
-        }
-        # Cookie များကို ScrapingBee format သို့ ပြောင်းခြင်း
-        if self.cookies:
-            params['cookies'] = "; ".join([f"{k}={v}" for k, v in self.cookies.items()])
-            
-        # Headers များကို "Spb-" ခံ၍ ပေးပို့မှသာ ScrapingBee မှ Target သို့ ဆက်ပို့ပေးမည်
-        spb_headers = {}
-        if headers:
-            for k, v in headers.items():
-                spb_headers[f"Spb-{k}"] = str(v)
-                
-        return params, spb_headers
-
-    def get(self, url, headers=None, **kwargs):
-        params, spb_headers = self._build_params(url, headers)
-        return cffi_requests.get(self.base_url, params=params, headers=spb_headers, impersonate="chrome120")
-
-    def post(self, url, data=None, headers=None, **kwargs):
-        params, spb_headers = self._build_params(url, headers)
-        return cffi_requests.post(self.base_url, params=params, headers=spb_headers, data=data, impersonate="chrome120")
-
-# ==========================================
-# 🍪 MAIN SCRAPER (CURL_CFFI OR SCRAPINGBEE)
+# 🍪 MAIN SCRAPER (CURL_CFFI FOR CLOUDFLARE BYPASS)
 # ==========================================
 async def get_main_scraper():
     raw_cookie = await db.get_main_cookie()
@@ -108,11 +67,7 @@ async def get_main_scraper():
                 k, v = item.strip().split('=', 1)
                 cookie_dict[k.strip()] = v.strip()
                 
-    # 🟢 .env တွင် SCRAPINGBEE_API_KEY ထည့်ထားပါက ScrapingBee ကို အသုံးပြုမည်
-    if SCRAPINGBEE_API_KEY:
-        return ScrapingBeeSession(SCRAPINGBEE_API_KEY, cookie_dict)
-    
-    # 🟢 မထည့်ထားပါက ရိုးရိုး curl_cffi ကိုသာ အသုံးပြုမည်
+    # 🟢 curl_cffi ဖြင့် Chrome 120 အဖြစ် ဟန်ဆောင်မည် (Cloudflare ကို အလွယ်တကူ ကျော်ဖြတ်နိုင်ရန်)
     scraper = cffi_requests.Session(impersonate="chrome120", cookies=cookie_dict)
     return scraper
 
@@ -680,22 +635,26 @@ async def handle_raw_cookie_dump(client, message: Message):
 # ==========================================
 # 💳 BALANCE COMMAND & TOOLS
 # ==========================================
-@app.on_message(filters.command("balance"))
+@app.on_message(filters.command("balance") | filters.regex(r"(?i)^\.bal$"))
 async def check_balance_command(client, message: Message):
-    if not await is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+    if not await is_authorized(message): 
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     tg_id = str(message.from_user.id)
     user_wallet = await db.get_reseller(tg_id)
-    if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
+    if not user_wallet: 
+        return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
-    ICON_EMOJI = "5956330306167376831"
-    BR_EMOJI = "5228878788867142213"
-    PH_EMOJI = "5231361434583049965"
+    # 🟢 သင့်ပုံထဲက Premium Emoji ID များကို ဒီနေရာမှာ ပြောင်းထည့်ပါ
+    ICON_EMOJI = "5956330306167376831" # အပြာရောင် icon လေးရဲ့ ID
+    BR_EMOJI = "5228878788867142213"   # 🇧🇷 အလံ Emoji ID
+    PH_EMOJI = "5231361434583049965"   # 🇵🇭 အလံ Emoji ID
 
+    # V-Wallet Balance (Blockquote ဖြင့်)
     report = (
-        f"<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>YOUR WALLET BALANCE</b>\n\n"
-        f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> BR BALANCE : ${user_wallet.get('br_balance', 0.0):,.2f}\n"
-        f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> PH BALANCE : ${user_wallet.get('ph_balance', 0.0):,.2f}</blockquote>"
+        f"<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>𝗬𝗢𝗨𝗥 𝗪𝗔𝗟𝗟𝗘𝗧 𝗕𝗔𝗟𝗔𝗡𝗖𝗘</b>\n\n"
+        f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> 𝗕𝗥 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${user_wallet.get('br_balance', 0.0):,.2f}\n"
+        f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> 𝗣𝗛 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${user_wallet.get('ph_balance', 0.0):,.2f}</blockquote>"
     )
     
     if message.from_user.id == OWNER_ID:
@@ -704,18 +663,18 @@ async def check_balance_command(client, message: Message):
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
             balances = await get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
+            
+            # Official Balance ကို နောက်ထပ် Blockquote တစ်ခုအနေနဲ့ ဆက်ထည့်မည်
             report += (
-                f"\n\n<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>OFFICIAL ACCOUNT BALANCE</b>\n\n"
-                f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> BR BALANCE : ${balances.get('br_balance', 0.00):,.2f}\n"
-                f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> PH BALANCE : ${balances.get('ph_balance', 0.00):,.2f}</blockquote>"
+                f"\n\n<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>𝗢𝗙𝗙𝗜𝗖𝗜𝗔𝗟 𝗔𝗖𝗖𝗢𝗨𝗡𝗧 𝗕𝗔𝗟𝗔𝗡𝗖𝗘</b>\n\n"
+                f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> 𝗕𝗥 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${balances.get('br_balance', 0.00):,.2f}\n"
+                f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> 𝗣𝗛 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${balances.get('ph_balance', 0.00):,.2f}</blockquote>"
             )
-            await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            print(f"Balance Command Error: {e}")
-            try:
-                await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
-            except Exception as parse_error:
-                await loading_msg.edit_text(f"❌ View Error: {parse_error}\nYour V-Wallet Balance is BR: ${user_wallet.get('br_balance', 0.0):,.2f} | PH: ${user_wallet.get('ph_balance', 0.0):,.2f}")
+            
+            await loading_msg.edit(report, parse_mode=ParseMode.HTML)
+        except:
+            # Error တက်ခဲ့ရင်တောင် V-Wallet ကိုတော့ ဆက်ပြပေးမည်
+            await loading_msg.edit(report, parse_mode=ParseMode.HTML)
     else:
         await message.reply(report, parse_mode=ParseMode.HTML)
 
@@ -952,6 +911,7 @@ async def auto_calculator(client, message: Message):
 # 10. 💓 HEARTBEAT FUNCTION
 # ==========================================
 async def keep_cookie_alive():
+    """ Reactive Renewal: (၂) မိနစ်တစ်ခါ စစ်မည်။ """
     while True:
         try:
             await asyncio.sleep(2 * 60) 
@@ -961,15 +921,15 @@ async def keep_cookie_alive():
             if "login" not in response.url.lower() and response.status_code == 200:
                 pass 
             else:
-                print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] ⚠️ Main Cookie expired unexpectedly. Reactive Auto-login triggered.")
-                try: await app.send_message(OWNER_ID, "⚠️ Cookies Expired unexpectedly. Attempting Auto-Login...", parse_mode=ParseMode.HTML)
-                except Exception: pass
+                print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] ⚠️ Main Cookie expired unexpectedly.")
+                
+                # 🟢 အသစ်ရေးထားသော Function ဖြင့် Owner ဆီ စာပို့မည်
+                await notify_owner("⚠️ <b>System Warning:</b> Cookie သက်တမ်းကုန်သွားသည်ကို တွေ့ရှိရပါသည်။ Auto-Login စတင်နေပါသည်...")
 
                 success = await auto_login_and_get_cookie()
                 
                 if not success:
-                    try: await app.send_message(OWNER_ID, "❌ <b>Critical:</b> Reactive Auto-Login failed. Please update cookie manually.", parse_mode=ParseMode.HTML)
-                    except Exception: pass
+                    await notify_owner("❌ <b>Critical:</b> Auto-Login မအောင်မြင်ပါ။ သင့်အနေဖြင့် `/setcookie` ဖြင့် Cookie အသစ် လာရောက်ထည့်သွင်းပေးရန် လိုအပ်ပါသည်။")
         except Exception: pass
 
 

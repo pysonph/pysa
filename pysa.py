@@ -595,7 +595,13 @@ async def check_balance_command(client, message: Message):
     user_wallet = await db.get_reseller(tg_id)
     if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
-    report = f"💳 Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
+    # 🟢 သင့်ရဲ့ Premium Emoji ID များကို ဤနေရာတွင် အစားထိုးထည့်ပါ
+    # ID ရှာနည်း - ကိုယ်သုံးချင်တဲ့ Premium Emoji ကို @RawDataBot ဆီပို့ပြီး CustomEmoji_id ကို ကြည့်ပါ
+    CARD_EMOJI = "5213403875670765022" # 💳 (ဥပမာ ID)
+    #BR_EMOJI = "5285324503716839355"   # 🇧🇷 (ဥပမာ ID)
+    #PH_EMOJI = "5285551817344004077"   # 🇵🇭 (ဥပမာ ID)
+
+    report = f"<emoji id='{CARD_EMOJI}'>💳</emoji> <b>Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ</b>\n\n"
     report += f"🇧🇷 ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('br_balance', 0.0):,.2f}\n"
     report += f"🇵🇭 ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('ph_balance', 0.0):,.2f}"
     
@@ -605,14 +611,17 @@ async def check_balance_command(client, message: Message):
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
             balances = await get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
-            report += f"\n\n💳 **Oғғɪᴄɪᴀʟ ᴀᴄᴄᴏᴜɴᴛ-ʙᴀʟᴀɴᴄᴇ:**\n"
+            report += f"\n\n<emoji id='{CARD_EMOJI}'>💳</emoji> <b>Oғғɪᴄɪᴀʟ ᴀᴄᴄᴏᴜɴᴛ-ʙᴀʟᴀɴᴄᴇ:</b>\n"
             report += f"ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('br_balance', 0.00):,.2f}\n"
             report += f"ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('ph_balance', 0.00):,.2f}"
-            await loading_msg.edit(report)
+            
+            # Premium Emoji ပေါ်အောင် parse_mode ထည့်ပေးရမည်
+            await loading_msg.edit(report, parse_mode=ParseMode.HTML)
         except:
-            await loading_msg.edit(report)
+            await loading_msg.edit(report, parse_mode=ParseMode.HTML)
     else:
-        await message.reply(report)
+        # Premium Emoji ပေါ်အောင် parse_mode ထည့်ပေးရမည်
+        await message.reply(report, parse_mode=ParseMode.HTML)
 
 # 📜 HISTORY COMMAND (.his / /history) 
 
@@ -1366,7 +1375,7 @@ async def send_welcome(client, message: Message):
         EMOJI_8 = "5460873607729129032" # 🇵🇭
 
 
-        if is_authorized(message):
+if await is_authorized(message):
             status = "🟢 Aᴄᴛɪᴠᴇ"
         else:
             status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"

@@ -142,3 +142,9 @@ async def get_user_history(tg_id, limit=5):
     ).sort("timestamp", -1).limit(limit)
     
     return await cursor.to_list(length=limit)
+
+
+async def clear_user_history(tg_id):
+    """User တစ်ယောက်၏ Order History အားလုံးကို ဖျက်မည်"""
+    result = await orders_col.delete_many({"tg_id": str(tg_id)})
+    return result.deleted_count

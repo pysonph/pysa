@@ -214,7 +214,9 @@ PH_MCC_PACKAGES = {
 async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one/customer/order'):
     balances = {'br_balance': 0.00, 'ph_balance': 0.00}
     try:
-        response = await asyncio.to_thread(scraper.get, balance_url, headers=headers)
+        # 🟢 Timeout ထည့်ထားပေးတယ် (15 စက္ကန့်)
+        response = await asyncio.to_thread(scraper.get, balance_url, headers=headers, timeout=15)
+        
         br_match = re.search(r'(?i)(?:Balance|Saldo)[\s:]*?<\/p>\s*<p>\s*([\d\.,]+)', response.text)
         if br_match: balances['br_balance'] = float(br_match.group(1).replace(',', ''))
         else:
@@ -232,7 +234,8 @@ async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one
             if ph_balance_container:
                 span_tags = ph_balance_container.find_all('span')
                 if len(span_tags) >= 2: balances['ph_balance'] = float(span_tags[1].text.strip().replace(',', ''))
-    except Exception: pass
+    except Exception as e: 
+        print(f"Error fetching balance from site: {e}")
     return balances
 
 # ==========================================
@@ -583,9 +586,9 @@ async def check_balance_command(client, message: Message):
     user_wallet = await db.get_reseller(tg_id)
     if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
-    ICON_EMOJI = "5302302146903260814"
-    BR_EMOJI = "5285324503716839355"
-    PH_EMOJI = "5285551817344004077"
+    ICON_EMOJI = "5956330306167376831"
+    BR_EMOJI = "5228878788867142213"
+    PH_EMOJI = "5231361434583049965"
 
     report = (
         f"<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>YOUR WALLET BALANCE</b>\n\n"
@@ -604,9 +607,16 @@ async def check_balance_command(client, message: Message):
                 f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> BR BALANCE : ${balances.get('br_balance', 0.00):,.2f}\n"
                 f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> PH BALANCE : ${balances.get('ph_balance', 0.00):,.2f}</blockquote>"
             )
-            await loading_msg.edit(report, parse_mode=ParseMode.HTML)
-        except:
-            await loading_msg.edit(report, parse_mode=ParseMode.HTML)
+            # 🟢 .edit အစား .edit_text ကိုသုံးပါမယ်
+            await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
+        except Exception as e:
+            print(f"Balance Command Error: {e}")
+            try:
+                # 🟢 Error ဖြစ်ခဲ့ရင် Offline Wallet Balance လောက်ပဲ ပြန်ပြပါမယ်
+                await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
+            except Exception as parse_error:
+                # 🟢 Custom Emoji Parsing ကြောင့် Error ထပ်တက်ခဲ့ရင် Plain Text နဲ့ Error ပြပါမယ်
+                await loading_msg.edit_text(f"❌ View Error: {parse_error}\nYour V-Wallet Balance is BR: ${user_wallet.get('br_balance', 0.0):,.2f} | PH: ${user_wallet.get('ph_balance', 0.0):,.2f}")
     else:
         await message.reply(report, parse_mode=ParseMode.HTML)
 

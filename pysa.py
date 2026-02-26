@@ -604,9 +604,9 @@ async def check_balance_command(client, message: Message):
 
     # V-Wallet Balance (Blockquote ဖြင့်)
     report = (
-        f"<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>YOUR WALLET BALANCE</b>\n\n"
-        f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> BR BALANCE : ${user_wallet.get('br_balance', 0.0):,.2f}\n"
-        f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> PH BALANCE : ${user_wallet.get('ph_balance', 0.0):,.2f}</blockquote>"
+        f"<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>𝗬𝗢𝗨𝗥 𝗪𝗔𝗟𝗟𝗘𝗧 𝗕𝗔𝗟𝗔𝗡𝗖𝗘</b>\n\n"
+        f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> 𝗕𝗥 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${user_wallet.get('br_balance', 0.0):,.2f}\n"
+        f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> 𝗣𝗛 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${user_wallet.get('ph_balance', 0.0):,.2f}</blockquote>"
     )
     
     if message.from_user.id == OWNER_ID:
@@ -618,9 +618,9 @@ async def check_balance_command(client, message: Message):
             
             # Official Balance ကို နောက်ထပ် Blockquote တစ်ခုအနေနဲ့ ဆက်ထည့်မည်
             report += (
-                f"\n\n<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>OFFICIAL ACCOUNT BALANCE</b>\n\n"
-                f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> BR BALANCE : ${balances.get('br_balance', 0.00):,.2f}\n"
-                f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> PH BALANCE : ${balances.get('ph_balance', 0.00):,.2f}</blockquote>"
+                f"\n\n<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>𝗢𝗙𝗙𝗜𝗖𝗜𝗔𝗟 𝗔𝗖𝗖𝗢𝗨𝗡𝗧 𝗕𝗔𝗟𝗔𝗡𝗖𝗘</b>\n\n"
+                f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> 𝗕𝗥 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${balances.get('br_balance', 0.00):,.2f}\n"
+                f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> 𝗣𝗛 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${balances.get('ph_balance', 0.00):,.2f}</blockquote>"
             )
             
             await loading_msg.edit(report, parse_mode=ParseMode.HTML)

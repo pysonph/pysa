@@ -595,9 +595,9 @@ async def check_balance_command(client, message: Message):
     user_wallet = await db.get_reseller(tg_id)
     if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
-    report = f"<emoji id='{EMOJI_6}'>💳</emoji> Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
-    report += f"<emoji id='{EMOJI_7}'>🇧🇷</emoji> ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('br_balance', 0.0):,.2f}\n"
-    report += f"<emoji id='{EMOJI_8}'>🇵🇭</emoji> ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('ph_balance', 0.0):,.2f}"
+    report = f"💳 Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ\n\n"
+    report += f"🇧🇷 ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('br_balance', 0.0):,.2f}\n"
+    report += f"🇵🇭 ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('ph_balance', 0.0):,.2f}"
     
     if message.from_user.id == OWNER_ID:
         loading_msg = await message.reply("Fetching real balance from the official account...")

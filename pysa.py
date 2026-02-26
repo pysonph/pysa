@@ -1370,12 +1370,9 @@ async def send_welcome(client, message: Message):
         EMOJI_3 = "5958289678837746828" # 🆔
         EMOJI_4 = "5956330306167376831" # 📊
         EMOJI_5 = "5954078884310814346" # 📞
-        EMOJI_6 = "5213403875670765022" # 💳
-        EMOJI_7 = "5202074005346983800" # 🇧🇷
-        EMOJI_8 = "5460873607729129032" # 🇵🇭
 
-
-if await is_authorized(message):
+        # 🟢 ဒီနေရာလေးမှာ Space သေချာတန်းနေရပါမယ်
+        if await is_authorized(message):
             status = "🟢 Aᴄᴛɪᴠᴇ"
         else:
             status = "🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ"
@@ -1397,7 +1394,7 @@ if await is_authorized(message):
             f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n"
             f"👤 Usᴇʀɴᴀᴍᴇ: {full_name}\n"
             f"🆔 𝐈𝐃: <code>{tg_id}</code>\n"
-            f"📊 Sᴛᴀᴛᴜs: {status}\n\n"
+            f"📊 Sᴛᴀᴛᴜs: 🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ\n\n"
             f"📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone"
         )
         await message.reply(fallback_text, parse_mode=ParseMode.HTML)

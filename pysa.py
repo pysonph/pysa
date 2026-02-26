@@ -589,21 +589,25 @@ async def handle_raw_cookie_dump(client, message: Message):
 
 @app.on_message(filters.command("balance"))
 async def check_balance_command(client, message: Message):
-    if not await is_authorized(message): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+    if not await is_authorized(message): 
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     tg_id = str(message.from_user.id)
     user_wallet = await db.get_reseller(tg_id)
-    if not user_wallet: return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
+    if not user_wallet: 
+        return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
-    # 🟢 သင့်ရဲ့ Premium Emoji ID များကို ဤနေရာတွင် အစားထိုးထည့်ပါ
-    # ID ရှာနည်း - ကိုယ်သုံးချင်တဲ့ Premium Emoji ကို @RawDataBot ဆီပို့ပြီး CustomEmoji_id ကို ကြည့်ပါ
-    CARD_EMOJI = "5213403875670765022" # 💳 (ဥပမာ ID)
-    #BR_EMOJI = "5285324503716839355"   # 🇧🇷 (ဥပမာ ID)
-    #PH_EMOJI = "5285551817344004077"   # 🇵🇭 (ဥပမာ ID)
+    # 🟢 သင့်ပုံထဲက Premium Emoji ID များကို ဒီနေရာမှာ ပြောင်းထည့်ပါ
+    ICON_EMOJI = "5956330306167376831" # အပြာရောင် icon လေးရဲ့ ID
+    BR_EMOJI = "5228878788867142213"   # 🇧🇷 အလံ Emoji ID
+    PH_EMOJI = "5231361434583049965"   # 🇵🇭 အလံ Emoji ID
 
-    report = f"<emoji id='{CARD_EMOJI}'>💳</emoji> <b>Yᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ ʙᴀʟᴀɴᴄᴇ</b>\n\n"
-    report += f"🇧🇷 ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('br_balance', 0.0):,.2f}\n"
-    report += f"🇵🇭 ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${user_wallet.get('ph_balance', 0.0):,.2f}"
+    # V-Wallet Balance (Blockquote ဖြင့်)
+    report = (
+        f"<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>YOUR WALLET BALANCE</b>\n\n"
+        f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> BR BALANCE : ${user_wallet.get('br_balance', 0.0):,.2f}\n"
+        f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> PH BALANCE : ${user_wallet.get('ph_balance', 0.0):,.2f}</blockquote>"
+    )
     
     if message.from_user.id == OWNER_ID:
         loading_msg = await message.reply("Fetching real balance from the official account...")
@@ -611,16 +615,19 @@ async def check_balance_command(client, message: Message):
         headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
         try:
             balances = await get_smile_balance(scraper, headers, 'https://www.smile.one/customer/order')
-            report += f"\n\n<emoji id='{CARD_EMOJI}'>💳</emoji> <b>Oғғɪᴄɪᴀʟ ᴀᴄᴄᴏᴜɴᴛ-ʙᴀʟᴀɴᴄᴇ:</b>\n"
-            report += f"ʙʀ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('br_balance', 0.00):,.2f}\n"
-            report += f"ᴘʜ-ʙᴀʟᴀɴᴄᴇ  :  ${balances.get('ph_balance', 0.00):,.2f}"
             
-            # Premium Emoji ပေါ်အောင် parse_mode ထည့်ပေးရမည်
+            # Official Balance ကို နောက်ထပ် Blockquote တစ်ခုအနေနဲ့ ဆက်ထည့်မည်
+            report += (
+                f"\n\n<blockquote><emoji id='{ICON_EMOJI}'>💳</emoji> <b>OFFICIAL ACCOUNT BALANCE</b>\n\n"
+                f"<emoji id='{BR_EMOJI}'>🇧🇷</emoji> BR BALANCE : ${balances.get('br_balance', 0.00):,.2f}\n"
+                f"<emoji id='{PH_EMOJI}'>🇵🇭</emoji> PH BALANCE : ${balances.get('ph_balance', 0.00):,.2f}</blockquote>"
+            )
+            
             await loading_msg.edit(report, parse_mode=ParseMode.HTML)
         except:
+            # Error တက်ခဲ့ရင်တောင် V-Wallet ကိုတော့ ဆက်ပြပေးမည်
             await loading_msg.edit(report, parse_mode=ParseMode.HTML)
     else:
-        # Premium Emoji ပေါ်အောင် parse_mode ထည့်ပေးရမည်
         await message.reply(report, parse_mode=ParseMode.HTML)
 
 # 📜 HISTORY COMMAND (.his / /history) 

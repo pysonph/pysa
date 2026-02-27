@@ -10,6 +10,7 @@ import asyncio
 from playwright.async_api import async_playwright
 import html
 from collections import defaultdict
+import concurrent.futures
 
 # 🟢 curl_cffi ကို Import လုပ်ခြင်း (Cloudflare ကိုကျော်ရန်)
 from curl_cffi import requests as cffi_requests
@@ -51,9 +52,9 @@ app = Client(
 # 🚀 ADVANCED CONCURRENCY & LOCK SYSTEM
 # ==========================================
 user_locks = defaultdict(asyncio.Lock)
-api_semaphore = asyncio.Semaphore(5) 
+api_semaphore = asyncio.Semaphore(20) 
 auth_lock = asyncio.Lock()  # 🟢 Auto-login ပြိုင်တူမဝင်စေရန် Lock
-redeem_lock = asyncio.Lock()
+#redeem_lock = asyncio.Lock()
 last_login_time = 0         # 🟢 နောက်ဆုံး Login ဝင်ခဲ့သည့် အချိန်ကို မှတ်ထားရန်
 
 # ==========================================
@@ -180,6 +181,15 @@ BR_PACKAGES = {
     'tp': [{'pid': '33', 'price': 402.5, 'name': 'Twilight Passage'}],
     'web': [{'pid': '26555', 'price': 39.0, 'name': 'Elite Weekly Paackage'}],
     'wp': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp2': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp3': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp4': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp5': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp6': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp7': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp8': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+    'wp9': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
+   'wp10': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}]
 }
 
 PH_PACKAGES = {
@@ -197,6 +207,15 @@ PH_PACKAGES = {
     '6042': [{'pid': '221', 'price': 4750.00, 'name': '6042 💎'}],
     'tp': [{'pid': '214', 'price': 475.00, 'name': 'twilight pass 💎'}],
     'wp': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp2': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp3': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp4': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp5': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp6': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp7': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp8': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp9': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    'wp10': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}, {'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
 }
 
 MCC_PACKAGES = {
@@ -737,7 +756,6 @@ async def add_balance_command(client, message: Message):
 # ==========================================
 @app.on_message(filters.regex(r"(?i)^\.topup\s+([a-zA-Z0-9]+)"))
 async def handle_topup(client, message: Message):
-    # 🟢 Database မှ Auth ကို Async ဖြင့် စစ်ဆေးခြင်း
     if not await is_authorized(message): 
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
@@ -751,8 +769,8 @@ async def handle_topup(client, message: Message):
     
     loading_msg = await message.reply(f"Checking Code `{activation_code}`...")
     
-    # 🟢 Async Lock - လူ (၂) ယောက် ပြိုင်တူကုဒ်ဖြည့်လျှင် Balance ကွာဟမှုမရှိစေရန် တစ်ယောက်ပြီးမှ တစ်ယောက် အလုပ်လုပ်စေမည်
-    async with redeem_lock:
+    # 🟢 Global Lock အစား User တစ်ယောက်ချင်းစီအတွက်သာ Lock ချပါမည် (အခြားသူများ စောင့်ရန်မလိုတော့ပါ)
+    async with user_locks[tg_id]:
         scraper = await get_main_scraper()
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -1083,12 +1101,39 @@ async def execute_buy_process(client, message, lines, regex_pattern, currency, p
 # ==========================================
 # 💎 PURCHASE COMMAND HANDLERS
 # ==========================================
+
+# 🟢 တစ်ကြောင်းတည်းမှာ Item တွေ အများကြီးရေးခဲ့ရင် သီးသန့်စီ ခွဲထုတ်ပေးမယ့် Helper Function
+def parse_multiple_items(lines):
+    expanded_lines = []
+    regex = r"(?i)^(?:(?:msc|mlb|br|b|mlp|ph|p|mcc|mcb|mcp)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+(.+)"
+    for line in lines:
+        match = re.search(regex, line)
+        if match:
+            game_id = match.group(1)
+            zone_id = match.group(2)
+            items_str = match.group(3)
+            # Space ခြားထားတဲ့ Item တစ်ခုချင်းစီကို ယူပြီး သီးသန့် Line တွေအဖြစ် ပြောင်းပါမယ်
+            for item in items_str.split():
+                expanded_lines.append(f"{game_id} ({zone_id}) {item}")
+        else:
+            expanded_lines.append(line)
+    return expanded_lines
+
+
 @app.on_message(filters.regex(r"(?i)^(?:msc|mlb|br|b)\s+\d+"))
 async def handle_br_mlbb(client, message: Message):
     if not await is_authorized(message): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        lines = message.text.strip().split('\n')
-        regex = r"(?i)^(?:msc|mlb|br|b)\s+(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
+        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        
+        # 🟢 Item တွေကို အရင်ဆုံး ခွဲထုတ်ပါမယ်
+        lines = parse_multiple_items(raw_lines)
+
+        # 🟢 ၅ ခုထက်ကျော်ရင် ငြင်းမယ် (စုစုပေါင်း ဝယ်မယ့် Item အရေအတွက်ကို စစ်တာပါ)
+        if len(lines) > 5:
+            return await message.reply("❌ **5 Limit Exceeded:** တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
+
+        regex = r"(?i)^(?:(?:msc|mlb|br|b)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(client, message, lines, regex, 'BR', [DOUBLE_DIAMOND_PACKAGES, BR_PACKAGES], process_smile_one_order, "MLBB")
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 
@@ -1096,8 +1141,13 @@ async def handle_br_mlbb(client, message: Message):
 async def handle_ph_mlbb(client, message: Message):
     if not await is_authorized(message): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        lines = message.text.strip().split('\n')
-        regex = r"(?i)^(?:mlp|ph|p)\s+(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
+        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        lines = parse_multiple_items(raw_lines)
+
+        if len(lines) > 5:
+            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
+        regex = r"(?i)^(?:(?:mlp|ph|p)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(client, message, lines, regex, 'PH', PH_PACKAGES, process_smile_one_order, "MLBB")
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 
@@ -1105,8 +1155,13 @@ async def handle_ph_mlbb(client, message: Message):
 async def handle_br_mcc(client, message: Message):
     if not await is_authorized(message): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        lines = message.text.strip().split('\n')
-        regex = r"(?i)^(?:mcc|mcb)\s+(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
+        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        lines = parse_multiple_items(raw_lines)
+
+        if len(lines) > 5:
+            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
+        regex = r"(?i)^(?:(?:mcc|mcb)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(client, message, lines, regex, 'BR', MCC_PACKAGES, process_mcc_order, "MCC", is_mcc=True)
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 
@@ -1114,8 +1169,13 @@ async def handle_br_mcc(client, message: Message):
 async def handle_ph_mcc(client, message: Message):
     if not await is_authorized(message): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        lines = message.text.strip().split('\n')
-        regex = r"(?i)^mcp\s+(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
+        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        lines = parse_multiple_items(raw_lines)
+
+        if len(lines) > 5:
+            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
+        regex = r"(?i)^(?:mcp\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(client, message, lines, regex, 'PH', PH_MCC_PACKAGES, process_mcc_order, "MCC", is_mcc=True)
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 
@@ -1262,19 +1322,19 @@ async def check_cookie_status(client, message: Message):
 
 
 
-@app.on_message(filters.command("role") | filters.regex(r"(?i)^\.role$"))
+@app.on_message(filters.command("role") | filters.regex(r"(?i)^\.role\s+"))
 async def handle_check_role(client, message: Message):
     if not await is_authorized(message):
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
 
-    match = re.search(r"(?i)^/?role\s+(\d+)\s*\(\s*(\d+)\s*\)", message.text.strip())
+    match = re.search(r"(?i)^[./]?role\s+(\d+)\s*[\(]?\s*(\d+)\s*[\)]?", message.text.strip())
     if not match:
-        return await message.reply("❌ Invalid format:\n(Example - `/role 123456789 (12345)`)")
+        return await message.reply("❌ Invalid format:\n(Example - `.role 123456789 12345` or `/role 123456789 (12345)`)")
 
     game_id = match.group(1).strip()
     zone_id = match.group(2).strip()
     
-    loading_msg = await message.reply("💻")
+    loading_msg = await message.reply("Search region")
 
     scraper = await get_main_scraper()
     
@@ -1434,6 +1494,7 @@ if __name__ == '__main__':
     print("Starting Heartbeat & Auto-login thread...")
     print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်.....")
     
+    loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=50))
     loop = asyncio.get_event_loop()
     loop.run_until_complete(db.setup_indexes())
     loop.run_until_complete(db.init_owner(OWNER_ID))

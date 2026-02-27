@@ -1494,8 +1494,18 @@ if __name__ == '__main__':
     print("Starting Heartbeat & Auto-login thread...")
     print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်.....")
     
+    # 🟢 ၁။ Event Loop ကို အရင်ဆုံး သတ်မှတ်ရပါမည်
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    # 🟢 ၂။ Loop ရလာပြီဖြစ်တဲ့အတွက် Thread Pool ကို တိုးပေးလို့ရပါပြီ
+    import concurrent.futures  # (Import မလုပ်ရသေးရင် အလုပ်လုပ်အောင် ဒီမှာ တစ်ခါတည်း ထည့်ပေးထားပါတယ်)
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=50))
-    loop = asyncio.get_event_loop()
+    
+    # 🟢 ၃။ Database နှင့် Heartbeat Task များကို Run ပါမည်
     loop.run_until_complete(db.setup_indexes())
     loop.run_until_complete(db.init_owner(OWNER_ID))
     loop.create_task(keep_cookie_alive())

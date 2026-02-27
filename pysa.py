@@ -1573,9 +1573,7 @@ if __name__ == '__main__':
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    
-    # 🟢 ၂။ Loop ရလာပြီဖြစ်တဲ့အတွက် Thread Pool ကို တိုးပေးလို့ရပါပြီ
-    import concurrent.futures  # (Import မလုပ်ရသေးရင် အလုပ်လုပ်အောင် ဒီမှာ တစ်ခါတည်း ထည့်ပေးထားပါတယ်)
+
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=50))
     
     # 🟢 ၃။ Database နှင့် Heartbeat Task များကို Run ပါမည်

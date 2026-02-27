@@ -656,6 +656,82 @@ async def handle_raw_cookie_dump(client, message: Message):
         await message.reply(f"❌ Parsing Error: {str(e)}")
 
 
+
+# ==========================================
+# 💰 MANUAL BALANCE ADDITION (OWNER ONLY)
+# ==========================================
+@app.on_message(filters.command("addbal") | filters.regex(r"(?i)^\.addbal\s+"))
+async def add_balance_command(client, message: Message):
+    # 🟢 Owner သာလျှင် ဤ Command ကို အသုံးပြုခွင့်ရှိပါမည်
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ You are not authorized to use this command.")
+        
+    parts = message.text.strip().split()
+    
+    # 🟢 Format မှန်/မမှန် စစ်ဆေးခြင်း
+    if len(parts) < 3:
+        return await message.reply(
+            "⚠️ **Usage format:**\n"
+            "`.addbal <User_ID> <Amount> [BR/PH]`\n"
+            "**Example:** `.addbal 123456789 50 BR`"
+        )
+        
+    target_id = parts[1]
+    
+    # 🟢 ဂဏန်း ဟုတ်/မဟုတ် စစ်ဆေးခြင်း
+    try:
+        amount = float(parts[2])
+    except ValueError:
+        return await message.reply("❌ Invalid amount. Please enter numbers only.")
+        
+    # 🟢 နိုင်ငံ (Currency) ရွေးချယ်ခြင်း (ပုံသေ BR ဟု သတ်မှတ်ထားမည်)
+    currency = "BR"
+    if len(parts) > 3:
+        currency = parts[3].upper()
+        if currency not in ['BR', 'PH']:
+            return await message.reply("❌ Invalid currency. Please use 'BR' or 'PH'.")
+            
+    # 🟢 User ကို Database ထဲတွင် ရှိ/မရှိ စစ်ဆေးခြင်း
+    target_wallet = await db.get_reseller(target_id)
+    if not target_wallet:
+        return await message.reply(f"❌ User ID `{target_id}` not found in the database. Please `/add {target_id}` first.")
+        
+    # 🟢 Balance ပေါင်းထည့်ပေးခြင်း
+    if currency == 'BR':
+        await db.update_balance(target_id, br_amount=amount)
+    else:
+        await db.update_balance(target_id, ph_amount=amount)
+        
+    # 🟢 ပေါင်းထည့်ပြီးနောက် လက်ရှိ Balance ကို ပြန်ခေါ်ခြင်း
+    updated_wallet = await db.get_reseller(target_id)
+    new_br = updated_wallet.get('br_balance', 0.0)
+    new_ph = updated_wallet.get('ph_balance', 0.0)
+    
+    # 🟢 Owner ထံသို့ အောင်မြင်ကြောင်း ပြန်လည်အကြောင်းကြားခြင်း
+    await message.reply(
+        f"✅ **Balance Added Successfully!**\n\n"
+        f"👤 **User ID:** `{target_id}`\n"
+        f"💰 **Added:** `+{amount:,.2f} {currency}`\n\n"
+        f"📊 **Current Balance:**\n"
+        f"🇧🇷 BR: `${new_br:,.2f}`\n"
+        f"🇵🇭 PH: `${new_ph:,.2f}`"
+    )
+    
+    # 🟢 User ထံသို့ ပိုက်ဆံဝင်ကြောင်း အလိုအလျောက် သွားရောက်အသိပေးခြင်း (Notification)
+    try:
+        await app.send_message(
+            chat_id=int(target_id),
+            text=(
+                f"🎉 **Top-Up Alert!**\n\n"
+                f"Admin has successfully added `+{amount:,.2f} {currency}` to your V-Wallet.\n\n"
+                f"Type `.balance` to check your latest balance."
+            )
+        )
+    except Exception as e:
+        print(f"User {target_id} သို့ Noti ပို့၍မရပါ။ (User သည် Bot အား Block ထားခြင်း ဖြစ်နိုင်ပါသည်) - Error: {e}")
+
+
+
 # ==========================================
 # 💳 SMILE CODE TOP-UP COMMAND (FULLY ASYNC)
 # ==========================================

@@ -53,6 +53,7 @@ app = Client(
 user_locks = defaultdict(asyncio.Lock)
 api_semaphore = asyncio.Semaphore(5) 
 auth_lock = asyncio.Lock()  # 🟢 Auto-login ပြိုင်တူမဝင်စေရန် Lock
+redeem_lock = asyncio.Lock()
 last_login_time = 0         # 🟢 နောက်ဆုံး Login ဝင်ခဲ့သည့် အချိန်ကို မှတ်ထားရန်
 
 # ==========================================
@@ -653,6 +654,162 @@ async def handle_raw_cookie_dump(client, message: Message):
         await message.reply(f"✅ **Smart Cookie Parser: Success!**\n\n🍪 **Saved Cookie:**\n`{formatted_cookie}`")
     except Exception as e:
         await message.reply(f"❌ Parsing Error: {str(e)}")
+
+
+# ==========================================
+# 💳 SMILE CODE TOP-UP COMMAND (FULLY ASYNC)
+# ==========================================
+@app.on_message(filters.regex(r"(?i)^\.topup\s+([a-zA-Z0-9]+)"))
+async def handle_topup(client, message: Message):
+    # 🟢 Database မှ Auth ကို Async ဖြင့် စစ်ဆေးခြင်း
+    if not await is_authorized(message): 
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+    
+    match = re.search(r"(?i)^\.topup\s+([a-zA-Z0-9]+)", message.text.strip())
+    if not match: 
+        return await message.reply("Usage format - `.topup <Code>`")
+    
+    activation_code = match.group(1).strip()
+    tg_id = str(message.from_user.id)
+    user_id_int = message.from_user.id 
+    
+    loading_msg = await message.reply(f"Checking Code `{activation_code}`...")
+    
+    # 🟢 Async Lock - လူ (၂) ယောက် ပြိုင်တူကုဒ်ဖြည့်လျှင် Balance ကွာဟမှုမရှိစေရန် တစ်ယောက်ပြီးမှ တစ်ယောက် အလုပ်လုပ်စေမည်
+    async with redeem_lock:
+        scraper = await get_main_scraper()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        }
+        
+        # 🟢 အတွင်းပိုင်း လုပ်ဆောင်ချက်များကိုလည်း Async Function အဖြစ် ကြေညာခြင်း
+        async def try_redeem(api_type):
+            if api_type == 'PH':
+                page_url = 'https://www.smile.one/ph/customer/activationcode'
+                check_url = 'https://www.smile.one/ph/smilecard/pay/checkcard'
+                pay_url = 'https://www.smile.one/ph/smilecard/pay/payajax'
+                base_origin = 'https://www.smile.one'
+                base_referer = 'https://www.smile.one/ph/'
+                balance_check_url = 'https://www.smile.one/ph/customer/order'
+            else:
+                page_url = 'https://www.smile.one/customer/activationcode'
+                check_url = 'https://www.smile.one/smilecard/pay/checkcard'
+                pay_url = 'https://www.smile.one/smilecard/pay/payajax'
+                base_origin = 'https://www.smile.one'
+                base_referer = 'https://www.smile.one/'
+                balance_check_url = 'https://www.smile.one/customer/order'
+
+            req_headers = headers.copy()
+            req_headers['Referer'] = base_referer
+
+            try:
+                # 🟢 API ခေါ်ယူခြင်းများကို Thread ဖြင့် ခွဲထုတ်၍ Bot မထစ်စေရန် (Non-blocking) ပြုလုပ်ထားပါသည်
+                res = await asyncio.to_thread(scraper.get, page_url, headers=req_headers)
+                if "login" in res.url.lower(): return "expired", None
+
+                soup = BeautifulSoup(res.text, 'html.parser')
+                csrf_token = soup.find('meta', {'name': 'csrf-token'})
+                csrf_token = csrf_token.get('content') if csrf_token else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
+                if not csrf_token: return "error", "❌ CSRF Token not obtained."
+
+                ajax_headers = req_headers.copy()
+                ajax_headers.update({'X-Requested-With': 'XMLHttpRequest', 'Origin': base_origin, 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'})
+
+                check_res_raw = await asyncio.to_thread(scraper.post, check_url, data={'_csrf': csrf_token, 'pin': activation_code}, headers=ajax_headers)
+                check_res = check_res_raw.json()
+                code_status = str(check_res.get('code', check_res.get('status', '')))
+                
+                if code_status in ['200', '201', '0', '1'] or 'success' in str(check_res.get('msg', '')).lower():
+                    
+                    old_bal = await get_smile_balance(scraper, headers, balance_check_url)
+                    
+                    pay_res_raw = await asyncio.to_thread(scraper.post, pay_url, data={'_csrf': csrf_token, 'sec': activation_code}, headers=ajax_headers)
+                    pay_res = pay_res_raw.json()
+                    pay_status = str(pay_res.get('code', pay_res.get('status', '')))
+                    
+                    if pay_status in ['200', '0', '1'] or 'success' in str(pay_res.get('msg', '')).lower():
+                        await asyncio.sleep(5) 
+                        new_bal = await get_smile_balance(scraper, headers, balance_check_url)
+                        bal_key = 'br_balance' if api_type == 'BR' else 'ph_balance'
+                        added = round(new_bal[bal_key] - old_bal[bal_key], 2)
+                        return "success", added
+                    else:
+                        return "fail", "Payment failed."
+                else:
+                    return "invalid", "Invalid Code"
+                    
+            except Exception as e:
+                return "error", str(e)
+
+        # 🟢 Async Function ကို Await ဖြင့် ခေါ်ယူခြင်း
+        status, result = await try_redeem('BR')
+        active_region = 'BR'
+        
+        if status in ['invalid', 'fail']: 
+            status, result = await try_redeem('PH')
+            active_region = 'PH'
+
+        if status == "expired":
+            await loading_msg.edit("⚠️ <b>Cookies Expired!</b>\n\nAuto-login စတင်နေပါသည်... ခဏစောင့်ပြီး ပြန်လည်ကြိုးစားပါ။", parse_mode=ParseMode.HTML)
+            await notify_owner("⚠️ <b>Top-up Alert:</b> Code ဖြည့်သွင်းနေစဉ် Cookie သက်တမ်းကုန်သွားပါသည်။ Auto-login စတင်နေပါသည်...")
+            success = await auto_login_and_get_cookie()
+            if not success:
+                await notify_owner("❌ <b>Critical:</b> Auto-Login မအောင်မြင်ပါ။ `/setcookie` ဖြင့် အသစ်ထည့်ပေးပါ။")
+                
+        elif status == "error":
+            await loading_msg.edit(f"❌ Error: {result}")
+            
+        elif status in ['invalid', 'fail']:
+            await loading_msg.edit("Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌\n(Code is invalid or might have been used)")
+            
+        elif status == "success":
+            added_amount = result
+            
+            if added_amount <= 0:
+                await loading_msg.edit(f"sᴍɪʟᴇ ᴏɴᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ sᴜᴄᴄᴇss ✅\n(Cannot retrieve exact amount due to System Delay.)")
+            else:
+                if user_id_int == OWNER_ID:
+                    fee_percent = 0.0
+                    fee_amount = 0.0
+                    net_added = added_amount
+                else:
+                    if added_amount >= 10000:
+                        fee_percent = 0.10
+                    elif added_amount >= 5000:
+                        fee_percent = 0.15
+                    elif added_amount >= 1000:
+                        fee_percent = 0.20
+                    else:
+                        fee_percent = 0.30
+
+                fee_amount = round(added_amount * (fee_percent / 100), 2)
+                net_added = round(added_amount - fee_amount, 2)
+        
+                # 🟢 Database ကို Async ဖြင့် ခေါ်ယူ၍ Update လုပ်ခြင်း
+                user_wallet = await db.get_reseller(tg_id)
+                if active_region == 'BR':
+                    assets = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
+                    await db.update_balance(tg_id, br_amount=net_added)
+                else:
+                    assets = user_wallet.get('ph_balance', 0.0) if user_wallet else 0.0
+                    await db.update_balance(tg_id, ph_amount=net_added)
+
+                total_assets = assets + net_added
+                fmt_amount = int(added_amount) if added_amount % 1 == 0 else added_amount
+
+                msg = (
+                    f"✅ <b>Code Top-Up Successful</b>\n\n"
+                    f"<code>"
+                    f"Code   : {activation_code} ({active_region})\n"
+                    f"Amount : {fmt_amount:,}\n"
+                    f"Fee    : -{fee_amount:.1f} ({fee_percent}%)\n"
+                    f"Added  : +{net_added:,.1f} 🪙\n"
+                    f"Assets : {assets:,.1f} 🪙\n"
+                    f"Total  : {total_assets:,.1f} 🪙"
+                    f"</code>"
+                )
+                await loading_msg.edit(msg, parse_mode=ParseMode.HTML)
 
 # ==========================================
 # 💳 BALANCE COMMAND & TOOLS

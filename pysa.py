@@ -183,10 +183,19 @@ BR_PACKAGES = {
 
 PH_PACKAGES = {
     '11': [{'pid': '212', 'price': 9.50, 'name': '11 💎'}],
-    '22': [{'pid': '213', 'price': 19.0, 'name': '22 💎'}],
+    '22': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}],
+    '33': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}, {'pid': '212', 'price': 9.50, 'name': '11 💎'}],
+    '44': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}, {'pid': '213', 'price': 19.00, 'name': '22 💎'}],
     '56': [{'pid': '214', 'price': 47.50, 'name': '56 💎'}],
-    '112': [{'pid': '214', 'price': 47.50, 'name': '56 💎'}, {'pid': '214', 'price': 47.50, 'name': '56 💎'}],
-    'pwp': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
+    '112': [{'pid': '215', 'price': 95.00, 'name': '112 💎'}],
+    '223': [{'pid': '216', 'price': 190.00, 'name': '223 💎'}],
+    '336': [{'pid': '217', 'price': 285.00, 'name': '336 💎'}],
+    '570': [{'pid': '218', 'price': 475.00, 'name': '570 💎'}],
+    '1163': [{'pid': '219', 'price': 950.00, 'name': '1163 💎'}],
+    '2398': [{'pid': '220', 'price': 1900.00, 'name': '2398 💎'}],
+    '6042': [{'pid': '221', 'price': 4750.00, 'name': '6042 💎'}],
+    'tp': [{'pid': '214', 'price': 475.00, 'name': 'twilight pass 💎'}],
+    'wp': [{'pid': '16641', 'price': 95.00, 'name': 'Weekly Pass'}],
 }
 
 MCC_PACKAGES = {
@@ -223,6 +232,19 @@ MCC_PACKAGES = {
 
 PH_MCC_PACKAGES = {
     '5': [{'pid': '23906', 'price': 4.75, 'name': '5 💎'}],
+    '11': [{'pid': '23907', 'price': 9.03, 'name': '11 💎'}],
+    '22': [{'pid': '23908', 'price': 18.05, 'name': '22 💎'}],
+    '56': [{'pid': '23909', 'price': 45.13, 'name': '56 💎'}],
+    '112': [{'pid': '23910', 'price': 90.25, 'name': '112 💎'}],
+    '223': [{'pid': '23911', 'price': 180.50, 'name': '223 💎'}],
+    '339': [{'pid': '23912', 'price': 270.75, 'name': '339 💎'}],
+    '570': [{'pid': '23913', 'price': 451.25, 'name': '578 💎'}],
+    '1163': [{'pid': '23914', 'price': 902.50, 'name': '1163 💎'}],
+    '2398': [{'pid': '23915', 'price': 1805.00, 'name': '2398 💎'}],
+    '6042': [{'pid': '23916', 'price': 4512.50, 'name': '6042 💎'}],
+    'wp': [{'pid': '23906', 'price': 90.00, 'name': 'wp 💎'}],
+    'lukas': [{'pid': '23906', 'price': 47.45, 'name': 'lukas battle bounty💎'}],
+    'battlefordiscounts': [{'pid': '23906', 'price': 47.45, 'name': 'battlefordiscounts 💎'}],
 }
 
 # ==========================================
@@ -554,7 +576,7 @@ async def is_authorized(message: Message):
 # ==========================================
 # 5. RESELLER MANAGEMENT & COMMANDS
 # ==========================================
-@app.on_message(filters.command("add"))
+@app.on_message(filters.command("add") | filters.regex(r"(?i)^\.add$"))
 async def add_reseller(client, message: Message):
     if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
     parts = message.text.split()
@@ -568,7 +590,7 @@ async def add_reseller(client, message: Message):
     else:
         await message.reply(f"Reseller ID `{target_id}` is already in the list.")
 
-@app.on_message(filters.command("remove"))
+@app.on_message(filters.command("remove") | filters.regex(r"(?i)^\.remove$"))
 async def remove_reseller(client, message: Message):
     if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
     parts = message.text.split()
@@ -582,7 +604,7 @@ async def remove_reseller(client, message: Message):
     else:
         await message.reply("That ID is not in the list.")
 
-@app.on_message(filters.command("users"))
+@app.on_message(filters.command("users") | filters.regex(r"(?i)^\.users$"))
 async def list_resellers(client, message: Message):
     if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
     resellers_list = await db.get_all_resellers()
@@ -941,11 +963,9 @@ async def schedule_daily_cookie_renewal():
         # 🟢 ယနေ့ မနက် ၆:၃၀ အချိန်ကို သတ်မှတ်ခြင်း
         target_time = now.replace(hour=6, minute=30, second=0, microsecond=0)
         
-        # 🟢 အကယ်၍ ယနေ့ မနက် ၆:၃၀ ကျော်သွားပြီဆိုလျှင်၊ နောက်နေ့ မနက် ၆:၃၀ အတွက် ပြင်ဆင်မည်
         if now >= target_time:
             target_time += datetime.timedelta(days=1)
             
-        # 🟢 မနက် ၆:၃၀ ရောက်ရန် ကျန်ရှိသော စက္ကန့်အရေအတွက်ကို တွက်ချက်ခြင်း
         wait_seconds = (target_time - now).total_seconds()
         print(f"⏰ Proactive Cookie Renewal is scheduled in {wait_seconds / 3600:.2f} hours (at {target_time.strftime('%I:%M %p')} MMT).")
         
@@ -979,17 +999,15 @@ async def notify_owner(text: str):
     except Exception as e:
         print(f" Owner ထံသို့ Message ပို့၍မရပါ: {e}")
 
-
 # ==========================================
 # 🍪 CHECK COOKIE STATUS COMMAND
 # ==========================================
 @app.on_message(filters.command("cookies") | filters.regex(r"(?i)^\.cookies$"))
 async def check_cookie_status(client, message: Message):
-    # 🟢 Owner တစ်ယောက်တည်းသာ စစ်ဆေးခွင့်ရှိရန် သတ်မှတ်ထားပါသည်
     if message.from_user.id != OWNER_ID: 
         return await message.reply("❌ You are not authorized to check system cookies.")
         
-    loading_msg = await message.reply("⏳ Checking Cookie status...")
+    loading_msg = await message.reply("Checking Cookie status...")
     
     try:
         scraper = await get_main_scraper()
@@ -999,17 +1017,101 @@ async def check_cookie_status(client, message: Message):
             'Origin': 'https://www.smile.one'
         }
         
-        # 🟢 Smile.one သို့ လှမ်း၍ စစ်ဆေးခြင်း (Timeout 15 စက္ကန့် သတ်မှတ်ထားသည်)
         response = await asyncio.to_thread(scraper.get, 'https://www.smile.one/customer/order', headers=headers, timeout=15)
         
-        # 🟢 Login စာမျက်နှာသို့ ရောက်မသွားဘဲ Status 200 ပြန်ရလျှင် Cookie အကောင်းဖြစ်သည်
         if "login" not in response.url.lower() and response.status_code == 200:
-            await loading_msg.edit_text("<b>🍪 System Cookie:</b> 🟢 Aᴄᴛɪᴠᴇ", parse_mode=ParseMode.HTML)
+            await loading_msg.edit_text("🟢 Aᴄᴛɪᴠᴇ", parse_mode=ParseMode.HTML)
         else:
-            await loading_msg.edit_text("<b>🍪 System Cookie:</b> 🔴 cookies Expired\n\n⚠️ Please update using `/setcookie` or wait for Auto-Login.", parse_mode=ParseMode.HTML)
+            await loading_msg.edit_text("🔴 Exᴘɪʀᴇᴅ", parse_mode=ParseMode.HTML)
             
     except Exception as e:
         await loading_msg.edit_text(f"❌ Error checking cookie: {str(e)}")
+
+
+
+@app.on_message(filters.command("role") | filters.regex(r"(?i)^\.role$"))
+async def handle_check_role(client, message: Message):
+    if not await is_authorized(message):
+        return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
+
+    match = re.search(r"(?i)^/?role\s+(\d+)\s*\(\s*(\d+)\s*\)", message.text.strip())
+    if not match:
+        return await message.reply("❌ Invalid format:\n(Example - `/role 123456789 (12345)`)")
+
+    game_id = match.group(1).strip()
+    zone_id = match.group(2).strip()
+    
+    loading_msg = await message.reply("💻")
+
+    scraper = await get_main_scraper()
+    
+    main_url = 'https://www.smile.one/merchant/mobilelegends'
+    checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
+    headers = {'X-Requested-With': 'XMLHttpRequest', 'Referer': main_url, 'Origin': 'https://www.smile.one'}
+
+    try:
+        res = await asyncio.to_thread(scraper.get, main_url, headers=headers)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        csrf_token = None
+        meta_tag = soup.find('meta', {'name': 'csrf-token'})
+        if meta_tag: csrf_token = meta_tag.get('content')
+        else:
+            csrf_input = soup.find('input', {'name': '_csrf'})
+            if csrf_input: csrf_token = csrf_input.get('value')
+
+        if not csrf_token:
+            return await loading_msg.edit("❌ CSRF Token not found. Add a new Cookie using /setcookie.")
+
+        check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
+        role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
+        
+        try: 
+            role_result = role_response_raw.json()
+        except: 
+            return await loading_msg.edit("❌ Cannot verify. (Smile API Error)")
+            
+        ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
+        
+        if not ig_name or str(ig_name).strip() == "":
+            real_error = role_result.get('msg') or role_result.get('message') or "Account not found."
+            if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
+                return await loading_msg.edit("⚠️ Cookie expired. Please add a new one using `/setcookie`.")
+            return await loading_msg.edit(f"❌ **Invalid Account:**\n{real_error}")
+
+        smile_region = role_result.get('zone') or role_result.get('region') or role_result.get('data', {}).get('zone') or "Unknown"
+
+        pizzo_region = "Unknown"
+        try:
+            pizzo_headers = {
+                'authority': 'pizzoshop.com',
+                'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'content-type': 'application/x-www-form-urlencoded',
+                'origin': 'https://pizzoshop.com',
+                'referer': 'https://pizzoshop.com/mlchecker',
+                'user-agent': 'Mozilla/5.0'
+            }
+            await asyncio.to_thread(scraper.get, "https://pizzoshop.com/mlchecker", headers=pizzo_headers, timeout=10)
+            pizzo_res_raw = await asyncio.to_thread(scraper.post, "https://pizzoshop.com/mlchecker/check", data={'user_id': game_id, 'zone_id': zone_id}, headers=pizzo_headers, timeout=15)
+            pizzo_soup = BeautifulSoup(pizzo_res_raw.text, 'html.parser')
+            table = pizzo_soup.find('table', class_='table-modern')
+            
+            if table:
+                for row in table.find_all('tr'):
+                    th, td = row.find('th'), row.find('td')
+                    if th and td and ('region id' in th.get_text(strip=True).lower() or 'region' in th.get_text(strip=True).lower()):
+                        pizzo_region = td.get_text(strip=True)
+        except: pass
+
+        final_region = pizzo_region if pizzo_region != "Unknown" else smile_region
+
+        report = f"ɢᴀᴍᴇ ɪᴅ : {game_id} ({zone_id})\nɪɢɴ ɴᴀᴍᴇ : {ig_name}\nʀᴇɢɪᴏɴ : {final_region}"
+        await loading_msg.edit(report)
+
+    except Exception as e:
+        await loading_msg.edit(f"❌ System Error: {str(e)}")
+
+
 
 # ==========================================
 # ℹ️ HELP & START COMMANDS

@@ -15,7 +15,7 @@ if not MONGO_URI:
 
 try:
     # 🟢 Motor ကိုသုံး၍ Asynchronous Connection ပြုလုပ်ခြင်း
-    client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000, maxPoolSize=50)
     db = client['smile_vwallet_db']
     
     resellers_col = db['resellers']
@@ -134,7 +134,7 @@ async def save_order(tg_id, game_id, zone_id, item_name, price, order_id, status
     }
     await orders_col.insert_one(order_data)
 
-async def get_user_history(tg_id, limit=5):
+async def get_user_history(tg_id, limit=50):
     """User တစ်ယောက်၏ နောက်ဆုံး Order များကို ဆွဲထုတ်မည်"""
     cursor = orders_col.find(
         {"tg_id": str(tg_id)}, 

@@ -981,6 +981,37 @@ async def notify_owner(text: str):
 
 
 # ==========================================
+# 🍪 CHECK COOKIE STATUS COMMAND
+# ==========================================
+@app.on_message(filters.command("cookies") | filters.regex(r"(?i)^\.cookies$"))
+async def check_cookie_status(client, message: Message):
+    # 🟢 Owner တစ်ယောက်တည်းသာ စစ်ဆေးခွင့်ရှိရန် သတ်မှတ်ထားပါသည်
+    if message.from_user.id != OWNER_ID: 
+        return await message.reply("❌ You are not authorized to check system cookies.")
+        
+    loading_msg = await message.reply("⏳ Checking Cookie status...")
+    
+    try:
+        scraper = await get_main_scraper()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 
+            'X-Requested-With': 'XMLHttpRequest', 
+            'Origin': 'https://www.smile.one'
+        }
+        
+        # 🟢 Smile.one သို့ လှမ်း၍ စစ်ဆေးခြင်း (Timeout 15 စက္ကန့် သတ်မှတ်ထားသည်)
+        response = await asyncio.to_thread(scraper.get, 'https://www.smile.one/customer/order', headers=headers, timeout=15)
+        
+        # 🟢 Login စာမျက်နှာသို့ ရောက်မသွားဘဲ Status 200 ပြန်ရလျှင် Cookie အကောင်းဖြစ်သည်
+        if "login" not in response.url.lower() and response.status_code == 200:
+            await loading_msg.edit_text("<b>🍪 System Cookie:</b> 🟢 Aᴄᴛɪᴠᴇ", parse_mode=ParseMode.HTML)
+        else:
+            await loading_msg.edit_text("<b>🍪 System Cookie:</b> 🔴 cookies Expired\n\n⚠️ Please update using `/setcookie` or wait for Auto-Login.", parse_mode=ParseMode.HTML)
+            
+    except Exception as e:
+        await loading_msg.edit_text(f"❌ Error checking cookie: {str(e)}")
+
+# ==========================================
 # ℹ️ HELP & START COMMANDS
 # ==========================================
 @app.on_message(filters.command("help") | filters.regex(r"(?i)^\.help$"))

@@ -1159,7 +1159,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                         break 
             
 # ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER [UPDATED FOR PRODUCT NAME]
+# 🛑 CORE ORDER EXECUTION HELPER [FIXED]
 # ==========================================
 async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
     tg_id = str(message.from_user.id)
@@ -1223,7 +1223,6 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                     tasks.append(process_func(game_id, zone_id, item['pid'], currency, prev_context=None))
                 
                 # ၂။ Task အားလုံးကို asyncio.gather ဖြင့် တစ်ပြိုင်နက်တည်း Run ခြင်း
-                # return_exceptions=True ထည့်ထားလို့ တစ်ခု Error တက်လည်း ကျန်တဲ့တစ်ခု ဆက်အလုပ်လုပ်ပါမယ်
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 # ၃။ ရလာတဲ့ ရလဒ်များကို Item အလိုက် ပြန်စစ်ဆေးခြင်း
@@ -1290,12 +1289,12 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                     f"ɢᴀᴍᴇ ɪᴅ      : {game_id} {zone_id}\n"
                     f"ɪɢ ɴᴀᴍᴇ      : {safe_ig_name}\n"
                     f"sᴇʀɪᴀʟ        :\n{order_ids_str.strip()}\n"
-                    f"ɪᴛᴇᴍ         : {safe_item_name}\n" # 🟢 နာမည်အမှန် ထည့်သွင်းပြသခြင်း
-                    f"sᴘᴇɴᴛ        : {total_spent:.2f} 🪙\n\n"
-                    f"ᴅᴀᴛᴇ         : {date_str}\n"
+                    f"ɪᴛᴇᴍ          : {safe_item_name}\n"
+                    f"sᴘᴇɴᴛ         : {total_spent:.2f} 🪙\n\n"
+                    f"ᴅᴀᴛᴇ          : {date_str}\n"
                     f"ᴜsᴇʀɴᴀᴍᴇ      : {safe_username}\n"
-                    f"ɪɴɪᴛɪᴀʟ      : ${user_v_bal:,.2f}\n"
-                    f"ғɪɴᴀʟ        : ${new_v_bal:,.2f}\n\n"
+                    f"ɪɴɪᴛɪᴀʟ       : ${user_v_bal:,.2f}\n"
+                    f"ғɪɴᴀʟ         : ${new_v_bal:,.2f}\n\n"
                     f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>"
                 )
                 await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
@@ -1324,6 +1323,9 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                     await message.reply(f"Only partially successful.\nError: {error_msg}")
             else:
                 await loading_msg.edit_text(f"❌ Order failed:\n{error_msg}")
+
+
+                        
 
 # ==========================================
 # 💎 PURCHASE COMMAND HANDLERS

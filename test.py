@@ -1742,63 +1742,89 @@ async def daily_reconciliation_task():
 # ==========================================
 # 🟢 ရိုးရိုး Text စာသားရော၊ ပုံနှင့်တွဲပို့သော Caption စာသားကိုပါ နှစ်မျိုးလုံး ဖမ်းယူမည်
 @dp.message(or_f(
-    F.text.regexp(r"^\d+\s*\(?\d+\)?.*"),
-    F.caption.regexp(r"^\d+\s*\(?\d+\)?.*")
+    F.text.regexp(r"^\d{7,}(?:\s+\(?\d+\)?)?\s*.*$"),
+    F.caption.regexp(r"^\d{7,}(?:\s+\(?\d+\)?)?\s*.*$")
 ))
 async def format_and_copy_text(message: types.Message):
-    # 🟢 Text သို့မဟုတ် Caption ရှိရာမှ စာသားကို ဆွဲယူမည်
     raw_text = (message.text or message.caption).strip()
     
-    # 🟢 Regex ကိုသုံး၍ Player ID, Zone ID နှင့် နောက်ဆက်တွဲစာသားတို့ကို အပိုင်း ၃ ပိုင်း ခွဲထုတ်မည်
-    match = re.match(r"^(\d+)\s*\(?(\d+)\)?\s*(.*)$", raw_text)
-    
-    if match:
-        player_id = match.group(1)
-        zone_id = match.group(2)
-        suffix = match.group(3).strip() 
+    if re.match(r"^\d{7,}$", raw_text):
+        formatted_raw = raw_text
         
-        # 🟢 နောက်ဆက်တွဲစာသား (Suffix) ကို Smart ဖြစ်အောင် ပြုပြင်မည်
-        if suffix:
-            clean_suffix = suffix.lower().replace(" ", "")
-            wp_match = re.match(r"^(\d*)wp(\d*)$", clean_suffix)
+    elif re.match(r"^\d{7,}\s+\d+", raw_text):
+        match = re.match(r"^(\d{7,})\s+(\d+)\s*(.*)$", raw_text)
+        if match:
+            player_id = match.group(1)
+            zone_id = match.group(2)
+            suffix = match.group(3).strip()
             
-            if wp_match:
-                num_str = wp_match.group(1) + wp_match.group(2)
-                if num_str == "" or num_str == "1":
-                    processed_suffix = "wp"
-                else:
-                    processed_suffix = f"wp{num_str}"
-            else:
-                processed_suffix = suffix 
+            if suffix:
+                # wp စစ်တာ အရင်အတိုင်းပဲ
+                clean_suffix = suffix.lower().replace(" ", "")
+                wp_match = re.match(r"^(\d*)wp(\d*)$", clean_suffix)
                 
-            formatted_raw = f"{player_id} ({zone_id}) {processed_suffix}"
+                if wp_match:
+                    num_str = wp_match.group(1) + wp_match.group(2)
+                    if num_str == "" or num_str == "1":
+                        processed_suffix = "wp"
+                    else:
+                        processed_suffix = f"wp{num_str}"
+                else:
+                    processed_suffix = suffix
+                    
+                formatted_raw = f"{player_id} ({zone_id}) {processed_suffix}"
+            else:
+                formatted_raw = f"{player_id} ({zone_id})"
         else:
-            formatted_raw = f"{player_id} ({zone_id})"
+            formatted_raw = raw_text
+    
+    elif re.match(r"^\d{7,}\s*\(\d+\)", raw_text):
+        match = re.match(r"^(\d{7,})\s*\((\d+)\)\s*(.*)$", raw_text)
+        if match:
+            player_id = match.group(1)
+            zone_id = match.group(2)
+            suffix = match.group(3).strip()
+            
+            if suffix:
+                clean_suffix = suffix.lower().replace(" ", "")
+                wp_match = re.match(r"^(\d*)wp(\d*)$", clean_suffix)
+                
+                if wp_match:
+                    num_str = wp_match.group(1) + wp_match.group(2)
+                    if num_str == "" or num_str == "1":
+                        processed_suffix = "wp"
+                    else:
+                        processed_suffix = f"wp{num_str}"
+                else:
+                    processed_suffix = suffix
+                    
+                formatted_raw = f"{player_id} ({zone_id}) {processed_suffix}"
+            else:
+                formatted_raw = f"{player_id} ({zone_id})"
+        else:
+            formatted_raw = raw_text
+            
     else:
-        # လွဲချော်သွားပါက မူလစာသားအတိုင်း ထားမည်
         formatted_raw = raw_text
 
-    # 🟢 ဖုန်းပေါ်တွင် စာသားကို တစ်ချက်နှိပ်ရုံဖြင့် Copy ကူးနိုင်ရန် <code>...</code> ဖြင့် ပိတ်ပေးမည်
     formatted_text = f"<code>{formatted_raw}</code>"
     
-    # 🟢 Copy 🤍 Button ဖန်တီးခြင်း (အနီရောင် 🔴 ထည့်ပြီးသား)
     try:
         from aiogram.types import CopyTextButton
         copy_btn = InlineKeyboardButton(
-            text="🔴 Copy 🤍",  # 🔴 ထည့်လိုက်တယ်
+            text="ᴄᴏᴘʏ",
             copy_text=CopyTextButton(text=formatted_raw),
-            style="danger"  # ⚠️ ဒီစာကြောင်းလေး ထည့်လိုက်တာ
+            style="primary"
         )
     except ImportError:
         copy_btn = InlineKeyboardButton(
-            text="🔴 Copy 🤍",  # 🔴 ထည့်လိုက်တယ်
+            text="ᴄᴏᴘʏ",
             switch_inline_query=formatted_raw,
-            style="danger"  # ⚠️ ဒီစာကြောင်းလေး ထည့်လိုက်တာ
+            style="primary"
         )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[copy_btn]])
     
-    # 🟢 Reply ပြန်ပို့ပေးမည် (ပုံပါ ပြန်မထပ်စေရန် Reply သီးသန့်သာ)
     await message.reply(formatted_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 ##############################################

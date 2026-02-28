@@ -193,6 +193,7 @@ BR_PACKAGES = {
 
 PH_PACKAGES = {
     '11': [{'pid': '212', 'price': 9.50, 'name': '11 💎'}],
+    'b33': [{'pid': '212', 'price': 9.50, 'name': '11 💎'}, {'pid': '213', 'price': 19.00, 'name': '22 💎'}],
     '22': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}],
     '33': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}, {'pid': '212', 'price': 9.50, 'name': '11 💎'}],
     '44': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}, {'pid': '213', 'price': 19.00, 'name': '22 💎'}],
@@ -1113,19 +1114,31 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             actual_names_list = [] # 🟢 Official Product Names များကို စုဆောင်းရန် Array
             
             async with api_semaphore:
-                await loading_msg.edit_text(f"Recharging Diam͟o͟n͟d͟ ● ᥫ᭡")
+                await loading_msg.edit_text(f"⚡ Recharging Diam͟o͟n͟d͟ (Turbo Mode) ● ᥫ᭡")
+                
+                # ၁။ ဝယ်ယူမည့် Item အားလုံးအတွက် Task များ ပြင်ဆင်ခြင်း
+                tasks = []
                 for item in items_to_buy:
-                    
-                    if is_mcc:
-                        result = await process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context)
-                    else:
-                        result = await process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context)
-                    
-                    if result['status'] == 'success':
-                        prev_context = {'csrf_token': result['csrf_token']}
+                    # Parallel သွားမှာဖြစ်လို့ prev_context (CSRF) ကို မျှမသုံးဘဲ သီးသန့်စီ ယူခိုင်းတာ ပို Safe ဖြစ်ပါတယ်
+                    tasks.append(process_func(game_id, zone_id, item['pid'], currency, prev_context=None))
+                
+                # ၂။ Task အားလုံးကို asyncio.gather ဖြင့် တစ်ပြိုင်နက်တည်း Run ခြင်း
+                # return_exceptions=True ထည့်ထားလို့ တစ်ခု Error တက်လည်း ကျန်တဲ့တစ်ခု ဆက်အလုပ်လုပ်ပါမယ်
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # ၃။ ရလာတဲ့ ရလဒ်များကို Item အလိုက် ပြန်စစ်ဆေးခြင်း
+                for item, result in zip(items_to_buy, results):
+                    # Exception (System Error) တက်ခဲ့ရင်
+                    if isinstance(result, Exception):
+                        fail_count += 1
+                        error_msg = f"System Error: {str(result)}"
+                        continue
+                        
+                    # ပုံမှန်အတိုင်း API က ပြန်ပေးတဲ့ ရလဒ်ဆိုရင်
+                    if result.get('status') == 'success':
                         ig_name = result['ig_name'] 
                         
-                        # 🟢 JSON မှရသော အမည်အမှန် သို့မဟုတ် Dictionary ထဲမှ အမည်ကို ယူမည်
+                        # Official Name ယူခြင်း
                         fetched_name = result.get('product_name', '').strip()
                         if not fetched_name:
                             fetched_name = item.get('name', item_input)
@@ -1134,7 +1147,12 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                         success_count += 1
                         total_spent += item['price']
                         order_ids_str += f"{result['order_id']}\n" 
-                        await asyncio.sleep(random.randint(1, 2)) 
+                    else:
+                        fail_count += 1
+                        error_msg = result.get('message', 'Unknown Payment Error')
+                
+                # အားလုံးစစ်ပြီးရင် အနည်းငယ် အနားပေးပါမည်
+                await asyncio.sleep(random.randint(1, 2)) 
                     else:
                         fail_count += 1
                         error_msg = result['message']
@@ -1736,11 +1754,9 @@ async def daily_reconciliation_task():
             print(f"Reconciliation Error: {e}")
 
 
-
 # ==========================================
-# 📋 AUTO FORMAT & COPY BUTTON (PHOTO CAPTION SUPPORT)
+# 📋 AUTO FORMAT & COPY BUTTON (SMART WP FIX)
 # ==========================================
-# 🟢 ရိုးရိုး Text စာသားရော၊ ပုံနှင့်တွဲပို့သော Caption စာသားကိုပါ နှစ်မျိုးလုံး ဖမ်းယူမည်
 @dp.message(or_f(
     F.text.regexp(r"^\d{7,}(?:\s+\(?\d+\)?)?\s*.*$"),
     F.caption.regexp(r"^\d{7,}(?:\s+\(?\d+\)?)?\s*.*$")

@@ -1059,7 +1059,7 @@ async def clean_order_history(message: types.Message):
     else: await message.reply("📜 **No Order History Found to Clean.**")
 
 # ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER [UPDATED FOR PRODUCT NAME]
+# 🛑 CORE ORDER EXECUTION HELPER [FIXED & VERIFIED]
 # ==========================================
 async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
     tg_id = str(message.from_user.id)
@@ -1067,6 +1067,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
     username_display = f"@{telegram_user}" if telegram_user else tg_id
     v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
     
+    # 🔒 Lock per user to prevent double spending
     async with user_locks[tg_id]: 
         for line in lines:
             line = line.strip()
@@ -1111,34 +1112,29 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             order_ids_str, ig_name, error_msg = "", "Unknown", ""
             
             prev_context = None 
-            actual_names_list = [] # 🟢 Official Product Names များကို စုဆောင်းရန် Array
+            actual_names_list = [] 
             
+            # 🚦 Limit concurrent API calls globally
             async with api_semaphore:
                 await loading_msg.edit_text(f"⚡ Recharging Diam͟o͟n͟d͟ (Turbo Mode) ● ᥫ᭡")
                 
-                # ၁။ ဝယ်ယူမည့် Item အားလုံးအတွက် Task များ ပြင်ဆင်ခြင်း
+                # 1. Prepare tasks
                 tasks = []
                 for item in items_to_buy:
-                    # Parallel သွားမှာဖြစ်လို့ prev_context (CSRF) ကို မျှမသုံးဘဲ သီးသန့်စီ ယူခိုင်းတာ ပို Safe ဖြစ်ပါတယ်
                     tasks.append(process_func(game_id, zone_id, item['pid'], currency, prev_context=None))
                 
-                # ၂။ Task အားလုံးကို asyncio.gather ဖြင့် တစ်ပြိုင်နက်တည်း Run ခြင်း
-                # return_exceptions=True ထည့်ထားလို့ တစ်ခု Error တက်လည်း ကျန်တဲ့တစ်ခု ဆက်အလုပ်လုပ်ပါမယ်
+                # 2. Execute tasks concurrently
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # ၃။ ရလာတဲ့ ရလဒ်များကို Item အလိုက် ပြန်စစ်ဆေးခြင်း
+                # 3. Process results
                 for item, result in zip(items_to_buy, results):
-                    # Exception (System Error) တက်ခဲ့ရင်
                     if isinstance(result, Exception):
                         fail_count += 1
                         error_msg = f"System Error: {str(result)}"
                         continue
                         
-                    # ပုံမှန်အတိုင်း API က ပြန်ပေးတဲ့ ရလဒ်ဆိုရင်
                     if result.get('status') == 'success':
                         ig_name = result['ig_name'] 
-                        
-                        # Official Name ယူခြင်း
                         fetched_name = result.get('product_name', '').strip()
                         if not fetched_name:
                             fetched_name = item.get('name', item_input)
@@ -1151,108 +1147,10 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                         fail_count += 1
                         error_msg = result.get('message', 'Unknown Payment Error')
                 
-                # အားလုံးစစ်ပြီးရင် အနည်းငယ် အနားပေးပါမည်
-                await asyncio.sleep(random.randint(1, 2)) 
-                    else:
-                        fail_count += 1
-                        error_msg = result['message']
-                        break 
-            
-# ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER [FIXED]
-# ==========================================
-async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
-    tg_id = str(message.from_user.id)
-    telegram_user = message.from_user.username
-    username_display = f"@{telegram_user}" if telegram_user else tg_id
-    v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
-    
-    async with user_locks[tg_id]: 
-        for line in lines:
-            line = line.strip()
-            if not line: continue 
-            
-            match = re.search(regex_pattern, line)
-            if not match:
-                await message.reply(f"Invalid format: `{line}`\nCheck /help for correct format.")
-                continue
-                
-            game_id = match.group(1)
-            zone_id = match.group(2)
-            item_input = match.group(3).lower() 
-            
-            active_packages = None
-            if isinstance(packages_dict, list):
-                for p_dict in packages_dict:
-                    if item_input in p_dict:
-                        active_packages = p_dict
-                        break
-            else:
-                if item_input in packages_dict:
-                    active_packages = packages_dict
-                    
-            if not active_packages:
-                await message.reply(f"❌ No Package found for '{item_input}'.")
-                continue
-                
-            items_to_buy = active_packages[item_input]
-            total_required_price = sum(item['price'] for item in items_to_buy)
-            
-            user_wallet = await db.get_reseller(tg_id)
-            user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
-            
-            if user_v_bal < total_required_price:
-                await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nNᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
-                continue
-            
-            loading_msg = await message.reply(f"⏱ Order လက်ခံရရှိပါသည်... ခဏစောင့်ပေးပါ ᥫ᭡")
-            
-            success_count, fail_count, total_spent = 0, 0, 0.0
-            order_ids_str, ig_name, error_msg = "", "Unknown", ""
-            
-            prev_context = None 
-            actual_names_list = [] # 🟢 Official Product Names များကို စုဆောင်းရန် Array
-            
-            async with api_semaphore:
-                await loading_msg.edit_text(f"⚡ Recharging Diam͟o͟n͟d͟ (Turbo Mode) ● ᥫ᭡")
-                
-                # ၁။ ဝယ်ယူမည့် Item အားလုံးအတွက် Task များ ပြင်ဆင်ခြင်း
-                tasks = []
-                for item in items_to_buy:
-                    # Parallel သွားမှာဖြစ်လို့ prev_context (CSRF) ကို မျှမသုံးဘဲ သီးသန့်စီ ယူခိုင်းတာ ပို Safe ဖြစ်ပါတယ်
-                    tasks.append(process_func(game_id, zone_id, item['pid'], currency, prev_context=None))
-                
-                # ၂။ Task အားလုံးကို asyncio.gather ဖြင့် တစ်ပြိုင်နက်တည်း Run ခြင်း
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # ၃။ ရလာတဲ့ ရလဒ်များကို Item အလိုက် ပြန်စစ်ဆေးခြင်း
-                for item, result in zip(items_to_buy, results):
-                    # Exception (System Error) တက်ခဲ့ရင်
-                    if isinstance(result, Exception):
-                        fail_count += 1
-                        error_msg = f"System Error: {str(result)}"
-                        continue
-                        
-                    # ပုံမှန်အတိုင်း API က ပြန်ပေးတဲ့ ရလဒ်ဆိုရင်
-                    if result.get('status') == 'success':
-                        ig_name = result['ig_name'] 
-                        
-                        # Official Name ယူခြင်း
-                        fetched_name = result.get('product_name', '').strip()
-                        if not fetched_name:
-                            fetched_name = item.get('name', item_input)
-                        actual_names_list.append(fetched_name)
-
-                        success_count += 1
-                        total_spent += item['price']
-                        order_ids_str += f"{result['order_id']}\n" 
-                    else:
-                        fail_count += 1
-                        error_msg = result.get('message', 'Unknown Payment Error')
-                
-                # အားလုံးစစ်ပြီးရင် အနည်းငယ် အနားပေးပါမည်
+                # Small delay to be safe
                 await asyncio.sleep(random.randint(1, 2)) 
             
+            # 📝 FINAL DECISION BLOCK (Indentation Fixed Here)
             if success_count > 0:
                 now = datetime.datetime.now(MMT)
                 date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
@@ -1266,7 +1164,6 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
                 final_order_ids = order_ids_str.strip().replace('\n', ', ')
                 
-                # 🟢 တူညီသော Item များဆိုလျှင် (x2), (x3) စသဖြင့် ပြပေးရန်
                 unique_names = list(set(actual_names_list))
                 if len(unique_names) == 1:
                     final_item_name = f"{unique_names[0]} (x{success_count})" if success_count > 1 else unique_names[0]
@@ -1280,7 +1177,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
              
                 safe_ig_name = html.escape(str(ig_name))
                 safe_username = html.escape(str(username_display))
-                safe_item_name = html.escape(str(final_item_name)) # 🟢 HTML Safe ပြုလုပ်ခြင်း
+                safe_item_name = html.escape(str(final_item_name))
                 
                 report = (
                     f"<blockquote><code>**{title_prefix} {game_id} ({zone_id}) {item_input} ({currency})**\n"
@@ -1299,7 +1196,6 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 )
                 await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
                 
-                # 🟢 (၂) ပုံထဲကအတိုင်း JSON Report ကို သီးသန့်ဖန်တီးခြင်း
                 json_date_str = now.strftime("%Y-%m-%d %H:%M:%S")
                 json_report = f"""{{
   "code": 200,
@@ -1315,14 +1211,14 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
     }}
   ]
 }}"""
-                
-                # 🟢 (၃) JSON Message ကို သီးသန့် နောက်ထပ်တစ်ခု ထပ်ပို့ပေးခြင်း
                 await message.reply(f"<code>{json_report}</code>", parse_mode=ParseMode.HTML)
                 
                 if fail_count > 0: 
                     await message.reply(f"Only partially successful.\nError: {error_msg}")
-            else:
+            
+            else: # <--- This ELSE is now correctly aligned with "if success_count > 0"
                 await loading_msg.edit_text(f"❌ Order failed:\n{error_msg}")
+
 
 
                         

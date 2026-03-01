@@ -1080,7 +1080,7 @@ async def clean_order_history(message: types.Message):
     else: await message.reply("📜 **No Order History Found to Clean.**")
 
 # ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER [FAST OPTIMIZED & TIME TAKEN ADDED]
+# 🛑 CORE ORDER EXECUTION HELPER [SINGLE RECEIPT & BATCH PARALLEL]
 # ==========================================
 async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
     tg_id = str(message.from_user.id)
@@ -1100,23 +1100,38 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 
             game_id = match.group(1)
             zone_id = match.group(2)
-            item_input = match.group(3).lower() 
+            raw_items_str = match.group(3).lower() 
             
-            active_packages = None
-            if isinstance(packages_dict, list):
-                for p_dict in packages_dict:
-                    if item_input in p_dict:
-                        active_packages = p_dict
-                        break
-            else:
-                if item_input in packages_dict:
-                    active_packages = packages_dict
+            # 🟢 Space ဖြင့် ခြားထားသော Item များကို ခွဲထုတ်ပြီး တစ်ပေါင်းတည်း စုစည်းမည် (ဥပမာ - "11 22")
+            requested_packages = raw_items_str.split()
+            
+            items_to_buy = []
+            not_found_pkgs = []
+            
+            for pkg in requested_packages:
+                active_packages = None
+                if isinstance(packages_dict, list):
+                    for p_dict in packages_dict:
+                        if pkg in p_dict:
+                            active_packages = p_dict
+                            break
+                else:
+                    if pkg in packages_dict:
+                        active_packages = packages_dict
+                        
+                if active_packages:
+                    # Package အားလုံးကို list တစ်ခုတည်းထဲသို့ စုထည့်လိုက်ပါသည်
+                    items_to_buy.extend(active_packages[pkg])
+                else:
+                    not_found_pkgs.append(pkg)
                     
-            if not active_packages:
-                await message.reply(f"❌ No Package found for '{item_input}'.")
+            if not_found_pkgs:
+                await message.reply(f"❌ Package(s) not found: {', '.join(not_found_pkgs)}")
                 continue
                 
-            items_to_buy = active_packages[item_input]
+            if not items_to_buy:
+                continue
+                
             total_required_price = sum(item['price'] for item in items_to_buy)
             
             user_wallet = await db.get_reseller(tg_id)
@@ -1126,49 +1141,55 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nNᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
                 continue
             
-            # 🟢 Order စတင်တဲ့ အချိန်ကို မှတ်သားထားမည်
+            # 🟢 Order စတင်တဲ့ အချိန်
             start_time = time.time()
             
             loading_msg = await message.reply(f"⏱ Order လက်ခံရရှိပါသည်... ခဏစောင့်ပေးပါ ᥫ᭡")
             
             success_count, fail_count, total_spent = 0, 0, 0.0
             order_ids_str, ig_name, error_msg = "", "Unknown", ""
-            
-            prev_context = None 
-            skip_role_check = False
-            known_ig_name = "Unknown"
             actual_names_list = [] 
             
             async with api_semaphore:
                 await loading_msg.edit_text(f"Recharging Diam͟o͟n͟d͟ ● ᥫ᭡")
-                for item in items_to_buy:
+                
+                # 🚀 ၁။ ပထမဆုံး Item တစ်ခုကို အရင်ဝယ်မည် (Account စစ်ရန်နှင့် Token ယူရန်)
+                first_item = items_to_buy[0]
+                first_result = await process_func(game_id, zone_id, first_item['pid'], currency, prev_context=None, skip_role_check=False, known_ig_name="Unknown")
+                
+                if first_result['status'] == 'success':
+                    success_count += 1
+                    total_spent += first_item['price']
+                    order_ids_str += f"{first_result['order_id']}\n"
+                    ig_name = first_result['ig_name']
+                    actual_names_list.append(first_item.get('name', raw_items_str))
                     
-                    if is_mcc:
-                        result = await process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context, skip_role_check=skip_role_check, known_ig_name=known_ig_name)
-                    else:
-                        result = await process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context, skip_role_check=skip_role_check, known_ig_name=known_ig_name)
-                    
-                    if result['status'] == 'success':
-                        prev_context = {'csrf_token': result['csrf_token']}
-                        ig_name = result['ig_name'] 
+                    # 🚀 ၂။ ကျန်တဲ့ Item အားလုံး (ဥပမာ 11 ရော 22 ရော) ကို တစ်ပြိုင်နက်တည်း (Parallel) ပစ်မည်
+                    if len(items_to_buy) > 1:
+                        prev_context = {'csrf_token': first_result['csrf_token']}
+                        remaining_items = items_to_buy[1:]
                         
-                        skip_role_check = True
-                        known_ig_name = ig_name
+                        tasks = []
+                        for item in remaining_items:
+                            tasks.append(process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context, skip_role_check=True, known_ig_name=ig_name))
                         
-                        fetched_name = item.get('name', item_input)
-                        actual_names_list.append(fetched_name)
-
-                        success_count += 1
-                        total_spent += item['price']
-                        order_ids_str += f"{result['order_id']}\n" 
+                        rest_results = await asyncio.gather(*tasks)
                         
-                        await asyncio.sleep(1) 
-                    else:
-                        fail_count += 1
-                        error_msg = result['message']
-                        break 
+                        for idx, res in enumerate(rest_results):
+                            current_item = remaining_items[idx]
+                            if res['status'] == 'success':
+                                success_count += 1
+                                total_spent += current_item['price']
+                                order_ids_str += f"{res['order_id']}\n"
+                                actual_names_list.append(current_item.get('name', raw_items_str))
+                            else:
+                                fail_count += 1
+                                error_msg = res['message']
+                else:
+                    fail_count += 1
+                    error_msg = first_result['message']
             
-            # 🟢 Order ပြီးဆုံးသွားတဲ့ အချိန်ကို တွက်ချက်မည်
+            # 🟢 Order ပြီးဆုံးတဲ့ အချိန်
             time_taken_seconds = int(time.time() - start_time)
             
             if success_count > 0:
@@ -1186,6 +1207,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 if len(unique_names) == 1:
                     final_item_name = f"{unique_names[0]} (x{success_count})" if success_count > 1 else unique_names[0]
                 else:
+                    # 🟢 မတူညီတဲ့ Item များကို ကော်မာ (,) ခြားပြီး ပြေစာတစ်ခုတည်းမှာ ပြသမည်
                     final_item_name = ", ".join(actual_names_list)
 
                 await db.save_order(
@@ -1197,9 +1219,8 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 safe_username = html.escape(str(username_display))
                 safe_item_name = html.escape(str(final_item_name)) 
                 
-                # 🟢 Report ထဲတွင် Tɪᴍᴇ ᴛᴀᴋᴇɴ ကို ထည့်သွင်းပြသခြင်း
                 report = (
-                    f"<blockquote><code>**{title_prefix} {game_id} ({zone_id}) {item_input} ({currency})**\n"
+                    f"<blockquote><code>**{title_prefix} {game_id} ({zone_id}) {raw_items_str.upper()} ({currency})**\n"
                     f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
                     f"ᴏʀᴅᴇʀ sᴛᴀᴛᴜs : ✅ Sᴜᴄᴄᴇss\n"
                     f"ɢᴀᴍᴇ ɪᴅ      : {game_id} {zone_id}\n"
@@ -1263,20 +1284,25 @@ def parse_multiple_items(lines):
     return expanded_lines
 
 
+# ==========================================
+# 💎 PURCHASE COMMAND HANDLERS [SINGLE RECEIPT OPTIMIZED]
+# ==========================================
+
 @dp.message(F.text.regexp(r"(?i)^(?:msc|mlb|br|b)\s+\d+"))
 async def handle_br_mlbb(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        regex = r"(?i)^(?:(?:msc|mlb|br|b)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+(.+)"
         
-        # 🟢 Item တွေကို အရင်ဆုံး ခွဲထုတ်ပါမယ်
-        lines = parse_multiple_items(raw_lines)
+        # 🟢 Limit စစ်ဆေးခြင်း
+        total_pkgs = 0
+        for line in lines:
+            match = re.search(regex, line)
+            if match: total_pkgs += len(match.group(3).split())
+            
+        if total_pkgs > 5: return await message.reply("❌ 5 Limit Exceeded: တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
 
-        # 🟢 ၅ ခုထက်ကျော်ရင် ငြင်းမယ် (စုစုပေါင်း ဝယ်မယ့် Item အရေအတွက်ကို စစ်တာပါ)
-        if len(lines) > 5:
-            return await message.reply("❌ **5 Limit Exceeded:** တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
-
-        regex = r"(?i)^(?:(?:msc|mlb|br|b)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'BR', [DOUBLE_DIAMOND_PACKAGES, BR_PACKAGES], process_smile_one_order, "MLBB")
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 
@@ -1284,13 +1310,16 @@ async def handle_br_mlbb(message: types.Message):
 async def handle_ph_mlbb(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
-        lines = parse_multiple_items(raw_lines)
+        lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        regex = r"(?i)^(?:(?:mlp|ph|p)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+(.+)"
 
-        if len(lines) > 5:
-            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+        total_pkgs = 0
+        for line in lines:
+            match = re.search(regex, line)
+            if match: total_pkgs += len(match.group(3).split())
+            
+        if total_pkgs > 5: return await message.reply("❌ 5 Limit Exceeded: တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
 
-        regex = r"(?i)^(?:(?:mlp|ph|p)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'PH', PH_PACKAGES, process_smile_one_order, "MLBB")
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 
@@ -1298,13 +1327,16 @@ async def handle_ph_mlbb(message: types.Message):
 async def handle_br_mcc(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
-        lines = parse_multiple_items(raw_lines)
+        lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        regex = r"(?i)^(?:(?:mcc|mcb)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+(.+)"
 
-        if len(lines) > 5:
-            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+        total_pkgs = 0
+        for line in lines:
+            match = re.search(regex, line)
+            if match: total_pkgs += len(match.group(3).split())
+            
+        if total_pkgs > 5: return await message.reply("❌ 5 Limit Exceeded: တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
 
-        regex = r"(?i)^(?:(?:mcc|mcb)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'BR', MCC_PACKAGES, process_mcc_order, "MCC", is_mcc=True)
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 
@@ -1312,13 +1344,16 @@ async def handle_br_mcc(message: types.Message):
 async def handle_ph_mcc(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
-        raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
-        lines = parse_multiple_items(raw_lines)
+        lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        regex = r"(?i)^(?:mcp\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+(.+)"
 
-        if len(lines) > 5:
-            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+        total_pkgs = 0
+        for line in lines:
+            match = re.search(regex, line)
+            if match: total_pkgs += len(match.group(3).split())
+            
+        if total_pkgs > 5: return await message.reply("❌ 5 Limit Exceeded: တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
 
-        regex = r"(?i)^(?:mcp\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'PH', PH_MCC_PACKAGES, process_mcc_order, "MCC", is_mcc=True)
     except Exception as e: await message.reply(f"System Error: {str(e)}")
 

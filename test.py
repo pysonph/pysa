@@ -306,7 +306,7 @@ async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one
     return balances
 
 # ==========================================
-# 3. SMILE.ONE SCRAPER FUNCTION (MLBB) [FAST OPTIMIZED]
+# 3. SMILE.ONE SCRAPER FUNCTION (MLBB) [SUPER FAST - FULL ASYNC GATHER]
 # ==========================================
 async def process_smile_one_order(game_id, zone_id, product_id, currency_name, prev_context=None, skip_role_check=False, known_ig_name="Unknown"):
     scraper = await get_main_scraper()
@@ -316,11 +316,13 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
         checkrole_url = 'https://www.smile.one/ph/merchant/mobilelegends/checkrole'
         query_url = 'https://www.smile.one/ph/merchant/mobilelegends/query'
         pay_url = 'https://www.smile.one/ph/merchant/mobilelegends/pay'
+        order_api_url = 'https://www.smile.one/ph/customer/activationcode/codelist'
     else:
         main_url = 'https://www.smile.one/merchant/mobilelegends'
         checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
         query_url = 'https://www.smile.one/merchant/mobilelegends/query'
         pay_url = 'https://www.smile.one/merchant/mobilelegends/pay'
+        order_api_url = 'https://www.smile.one/customer/activationcode/codelist'
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -330,37 +332,52 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
     }
 
     try:
-        csrf_token = None
+        csrf_token = prev_context.get('csrf_token') if prev_context else None
         ig_name = known_ig_name
-        
-        if prev_context: csrf_token = prev_context.get('csrf_token')
 
         if not csrf_token:
             response = await asyncio.to_thread(scraper.get, main_url, headers=headers)
             soup = BeautifulSoup(response.text, 'html.parser')
             meta_tag = soup.find('meta', {'name': 'csrf-token'})
-            if meta_tag: csrf_token = meta_tag.get('content')
-            else:
-                csrf_input = soup.find('input', {'name': '_csrf'})
-                if csrf_input: csrf_token = csrf_input.get('value')
-
+            csrf_token = meta_tag.get('content') if meta_tag else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
             if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Re-add Cookie."}
 
-        # 🟢 1. Check Role (Skip if already checked)
-        if not skip_role_check:
+        # 🟢 1. ပြိုင်တူ (Parallel) Run မည့် Task များ ဖန်တီးခြင်း
+        async def get_flow_id():
+            query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
+            return await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
+
+        async def get_last_order():
+            try:
+                res = await asyncio.to_thread(scraper.get, order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
+                json_data = res.json()
+                if 'list' in json_data and len(json_data['list']) > 0:
+                    for order in json_data['list']:
+                        if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
+                            return str(order.get('increment_id', ""))
+            except: pass
+            return None
+
+        async def check_role():
             check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
-            role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
+            return await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
+
+        # 🟢 2. Task များကို တစ်ပြိုင်နက်တည်း Run ခြင်း
+        if skip_role_check:
+            query_response_raw, last_known_order_id = await asyncio.gather(get_flow_id(), get_last_order())
+        else:
+            query_response_raw, last_known_order_id, role_response_raw = await asyncio.gather(get_flow_id(), get_last_order(), check_role())
+            
+            # 🟢 Role Check ရလဒ်ကို ယူခြင်း
             try:
                 role_result = role_response_raw.json()
                 ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
                 if not ig_name or str(ig_name).strip() == "":
                     return {"status": "error", "message": "❌ Invalid Account: Account not found."}
-            except Exception: return {"status": "error", "message": "Check Role API Error: Cannot verify account."}
+            except Exception: 
+                return {"status": "error", "message": "Check Role API Error."}
 
-        # 🟢 2. Query (Request Flow ID)
-        query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
-        query_response_raw = await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
-        
+        # 🟢 Query ရလဒ်ကို ယူခြင်း
         try: query_result = query_response_raw.json()
         except Exception: return {"status": "error", "message": "Query API Error"}
             
@@ -375,7 +392,7 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
                 else: return {"status": "error", "message": "❌ Auto-Login failed. Please /setcookie."}
             return {"status": "error", "message": f"❌ Query Failed: {real_error}"}
 
-        # 🟢 3. Pay (Finalize Order - Removed History Delays)
+        # 🟢 3. Pay API ကို လှမ်းခြင်း
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
         pay_response_raw = await asyncio.to_thread(scraper.post, pay_url, data=pay_data, headers=headers)
         pay_text = pay_response_raw.text.lower()
@@ -383,33 +400,46 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
         if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
             return {"status": "error", "message": "Insufficient balance in the Main account."}
         
-        real_order_id, is_success = f"FAST_{int(time.time())}_{random.randint(100,999)}", False
+        await asyncio.sleep(1.5) 
         
+        real_order_id, is_success = "Not found", False
+        actual_product_name = ""
+
         try:
-            pay_json = pay_response_raw.json()
-            code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
-            if code in ['200', '0', '1'] or 'success' in msg: 
-                is_success = True
-                real_order_id = str(pay_json.get('data', {}).get('order_id') or pay_json.get('order_id') or real_order_id)
-            else: 
-                return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
-        except:
-            if 'success' in pay_text or 'sucesso' in pay_text: is_success = True
+            hist_res_raw = await asyncio.to_thread(scraper.get, order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
+            hist_json = hist_res_raw.json()
+            if 'list' in hist_json and len(hist_json['list']) > 0:
+                for order in hist_json['list']:
+                    if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
+                        current_order_id = str(order.get('increment_id', ""))
+                        if current_order_id != last_known_order_id:
+                            if str(order.get('order_status', '')).lower() in ['success', '1'] or str(order.get('status')) == '1':
+                                real_order_id = current_order_id
+                                actual_product_name = str(order.get('product_name', ''))
+                                is_success = True
+                                break
+        except: pass
+
+        if not is_success:
+            try:
+                pay_json = pay_response_raw.json()
+                code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
+                if code in ['200', '0', '1'] or 'success' in msg: 
+                    is_success = True
+                    real_order_id = str(pay_json.get('data', {}).get('order_id') or pay_json.get('order_id') or f"FAST_{int(time.time())}")
+                else: 
+                    return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
+            except:
+                if 'success' in pay_text or 'sucesso' in pay_text: is_success = True
 
         if is_success:
-            return {
-                "status": "success", 
-                "ig_name": ig_name, 
-                "order_id": real_order_id, 
-                "csrf_token": csrf_token, 
-                "product_name": "" 
-            }
+            return {"status": "success", "ig_name": ig_name, "order_id": real_order_id, "csrf_token": csrf_token, "product_name": actual_product_name}
         else:
             return {"status": "error", "message": "Payment Verification Failed."}
 
     except Exception as e: return {"status": "error", "message": f"System Error: {str(e)}"}
 
-# 🌟 3.1 MAGIC CHESS SCRAPER FUNCTION [FAST OPTIMIZED]
+# 🌟 3.1 MAGIC CHESS SCRAPER FUNCTION [SUPER FAST - FULL ASYNC GATHER]
 async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_context=None, skip_role_check=False, known_ig_name="Unknown"):
     scraper = await get_main_scraper()
 
@@ -418,11 +448,13 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
         checkrole_url = 'https://www.smile.one/ph/merchant/game/checkrole'
         query_url = 'https://www.smile.one/ph/merchant/game/query'
         pay_url = 'https://www.smile.one/ph/merchant/game/pay'
+        order_api_url = 'https://www.smile.one/ph/customer/activationcode/codelist'
     else:
         main_url = 'https://www.smile.one/br/merchant/game/magicchessgogo'
         checkrole_url = 'https://www.smile.one/br/merchant/game/checkrole'
         query_url = 'https://www.smile.one/br/merchant/game/query'
         pay_url = 'https://www.smile.one/br/merchant/game/pay'
+        order_api_url = 'https://www.smile.one/br/customer/activationcode/codelist'
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -432,12 +464,9 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
     }
 
     try:
-        csrf_token = None
+        csrf_token = prev_context.get('csrf_token') if prev_context else None
         ig_name = known_ig_name
         
-        if prev_context:
-            csrf_token = prev_context.get('csrf_token')
-
         if not csrf_token:
             response = await asyncio.to_thread(scraper.get, main_url, headers=headers)
             if response.status_code in [403, 503] or "cloudflare" in response.text.lower():
@@ -445,28 +474,45 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
 
             soup = BeautifulSoup(response.text, 'html.parser')
             meta_tag = soup.find('meta', {'name': 'csrf-token'})
-            if meta_tag: csrf_token = meta_tag.get('content')
-            else:
-                csrf_input = soup.find('input', {'name': '_csrf'})
-                if csrf_input: csrf_token = csrf_input.get('value')
-
+            csrf_token = meta_tag.get('content') if meta_tag else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
             if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Add a new Cookie using /setcookie."}
 
-        # 🟢 Skip check role for multi-items
-        if not skip_role_check:
+        # 🟢 1. ပြိုင်တူ (Parallel) Run မည့် Task များ ဖန်တီးခြင်း
+        async def get_flow_id():
+            query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
+            return await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
+
+        async def get_last_order():
+            try:
+                res = await asyncio.to_thread(scraper.get, order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
+                json_data = res.json()
+                if 'list' in json_data and len(json_data['list']) > 0:
+                    for order in json_data['list']:
+                        if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
+                            return str(order.get('increment_id', ""))
+            except: pass
+            return None
+            
+        async def check_role():
             check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
-            role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
+            return await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
+
+        # 🟢 2. Task များကို တစ်ပြိုင်နက်တည်း Run ခြင်း
+        if skip_role_check:
+            query_response_raw, last_known_order_id = await asyncio.gather(get_flow_id(), get_last_order())
+        else:
+            query_response_raw, last_known_order_id, role_response_raw = await asyncio.gather(get_flow_id(), get_last_order(), check_role())
+            
+            # 🟢 Role Check ရလဒ်ကို ယူခြင်း
             try:
                 role_result = role_response_raw.json()
                 ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
                 if not ig_name or str(ig_name).strip() == "":
                     return {"status": "error", "message": "Account not found."}
-            except Exception: return {"status": "error", "message": "⚠️ Check Role API Error."}
+            except Exception: 
+                return {"status": "error", "message": "⚠️ Check Role API Error."}
 
-        # Query & Pay
-        query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
-        query_response_raw = await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
-        
+        # 🟢 Query ရလဒ်ကို ယူခြင်း
         try: query_result = query_response_raw.json()
         except Exception: return {"status": "error", "message": "Query API Error"}
             
@@ -483,6 +529,7 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
                     return {"status": "error", "message": "❌ Auto-Login failed. Please provide /setcookie."}
             return {"status": "error", "message": "Invalid account or unable to purchase."}
 
+        # 🟢 3. Pay API ကို လှမ်းခြင်း
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
         pay_response_raw = await asyncio.to_thread(scraper.post, pay_url, data=pay_data, headers=headers)
         pay_text = pay_response_raw.text.lower()
@@ -490,21 +537,40 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
         if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
             return {"status": "error", "message": "Insufficient balance in the Main account."}
         
-        real_order_id, is_success = f"FAST_{int(time.time())}_{random.randint(100,999)}", False
+        await asyncio.sleep(1.5)
+        
+        real_order_id, is_success = "Not found", False
+        actual_product_name = ""
 
         try:
-            pay_json = pay_response_raw.json()
-            code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
-            if code in ['200', '0', '1'] or 'success' in msg: 
-                is_success = True
-                real_order_id = str(pay_json.get('data', {}).get('order_id') or pay_json.get('order_id') or real_order_id)
-            else: 
-                return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
-        except:
-            if 'success' in pay_text or 'sucesso' in pay_text: is_success = True
+            hist_res_raw = await asyncio.to_thread(scraper.get, order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
+            hist_json = hist_res_raw.json()
+            if 'list' in hist_json and len(hist_json['list']) > 0:
+                for order in hist_json['list']:
+                    if str(order.get('user_id')) == str(game_id) and str(order.get('server_id')) == str(zone_id):
+                        current_order_id = str(order.get('increment_id', ""))
+                        if current_order_id != last_known_order_id:
+                            if str(order.get('order_status', '')).lower() in ['success', '1'] or str(order.get('status')) == '1':
+                                real_order_id = current_order_id
+                                actual_product_name = str(order.get('product_name', ''))
+                                is_success = True
+                                break
+        except: pass
+
+        if not is_success:
+            try:
+                pay_json = pay_response_raw.json()
+                code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
+                if code in ['200', '0', '1'] or 'success' in msg: 
+                    is_success = True
+                    real_order_id = str(pay_json.get('data', {}).get('order_id') or pay_json.get('order_id') or f"FAST_{int(time.time())}")
+                else: 
+                    return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
+            except:
+                if 'success' in pay_text or 'sucesso' in pay_text: is_success = True
 
         if is_success:
-            return {"status": "success", "ig_name": ig_name, "order_id": real_order_id, "csrf_token": csrf_token, "product_name": ""}
+            return {"status": "success", "ig_name": ig_name, "order_id": real_order_id, "csrf_token": csrf_token, "product_name": actual_product_name}
         else:
             return {"status": "error", "message": "Payment Verification Failed."}
 

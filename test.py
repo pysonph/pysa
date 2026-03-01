@@ -1088,7 +1088,7 @@ async def clean_order_history(message: types.Message):
     else: await message.reply("📜 **No Order History Found to Clean.**")
 
 # ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER [FAST OPTIMIZED & JSON TO LOG GROUP]
+# 🛑 CORE ORDER EXECUTION HELPER [FAST OPTIMIZED & TIME TAKEN ADDED]
 # ==========================================
 async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
     tg_id = str(message.from_user.id)
@@ -1134,6 +1134,9 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nNᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
                 continue
             
+            # 🟢 Order စတင်တဲ့ အချိန်ကို မှတ်သားထားမည်
+            start_time = time.time()
+            
             loading_msg = await message.reply(f"⏱ Order လက်ခံရရှိပါသည်... ခဏစောင့်ပေးပါ ᥫ᭡")
             
             success_count, fail_count, total_spent = 0, 0, 0.0
@@ -1167,11 +1170,14 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                         total_spent += item['price']
                         order_ids_str += f"{result['order_id']}\n" 
                         
-                        await asyncio.sleep(0.2) 
+                        await asyncio.sleep(1) 
                     else:
                         fail_count += 1
                         error_msg = result['message']
                         break 
+            
+            # 🟢 Order ပြီးဆုံးသွားတဲ့ အချိန်ကို တွက်ချက်မည်
+            time_taken_seconds = int(time.time() - start_time)
             
             if success_count > 0:
                 now = datetime.datetime.now(MMT)
@@ -1199,6 +1205,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 safe_username = html.escape(str(username_display))
                 safe_item_name = html.escape(str(final_item_name)) 
                 
+                # 🟢 Report ထဲတွင် Tɪᴍᴇ ᴛᴀᴋᴇɴ ကို ထည့်သွင်းပြသခြင်း
                 report = (
                     f"<blockquote><code>**{title_prefix} {game_id} ({zone_id}) {item_input} ({currency})**\n"
                     f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
@@ -1212,11 +1219,11 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                     f"ᴜsᴇʀɴᴀᴍᴇ      : {safe_username}\n"
                     f"ɪɴɪᴛɪᴀʟ      : ${user_v_bal:,.2f}\n"
                     f"ғɪɴᴀʟ        : ${new_v_bal:,.2f}\n\n"
-                    f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>"
+                    f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}\n"
+                    f"Tɪᴍᴇ ᴛᴀᴋᴇɴ   : {time_taken_seconds} sᴇᴄᴏɴᴅs</code></blockquote>"
                 )
                 await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
                 
-                # 🟢 JSON Report ကို ဖန်တီးပြီး Log Group ဆီကို လှမ်းပို့မည့် အပိုင်း
                 if LOG_GROUP_ID:
                     json_date_str = now.strftime("%Y-%m-%d %H:%M:%S")
                     json_report = f"""{{

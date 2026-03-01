@@ -1080,7 +1080,7 @@ async def clean_order_history(message: types.Message):
     else: await message.reply("📜 **No Order History Found to Clean.**")
 
 # ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER [SINGLE RECEIPT & BATCH PARALLEL]
+# 🛑 CORE ORDER EXECUTION HELPER [ULTIMATE MULTI-ID PARALLEL BATCH]
 # ==========================================
 async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
     tg_id = str(message.from_user.id)
@@ -1089,6 +1089,10 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
     v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
     
     async with user_locks[tg_id]: 
+        # 🟢 ၁။ ပို့လိုက်သော ID စာကြောင်းများအားလုံးကို အရင်ဆုံး စစ်ဆေးပြီး စုစည်းမည်
+        parsed_orders = []
+        total_required_price = 0.0
+        
         for line in lines:
             line = line.strip()
             if not line: continue 
@@ -1102,9 +1106,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             zone_id = match.group(2)
             raw_items_str = match.group(3).lower() 
             
-            # 🟢 Space ဖြင့် ခြားထားသော Item များကို ခွဲထုတ်ပြီး တစ်ပေါင်းတည်း စုစည်းမည် (ဥပမာ - "11 22")
             requested_packages = raw_items_str.split()
-            
             items_to_buy = []
             not_found_pkgs = []
             
@@ -1120,40 +1122,54 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                         active_packages = packages_dict
                         
                 if active_packages:
-                    # Package အားလုံးကို list တစ်ခုတည်းထဲသို့ စုထည့်လိုက်ပါသည်
                     items_to_buy.extend(active_packages[pkg])
                 else:
                     not_found_pkgs.append(pkg)
                     
             if not_found_pkgs:
-                await message.reply(f"❌ Package(s) not found: {', '.join(not_found_pkgs)}")
+                await message.reply(f"❌ Package(s) not found for ID {game_id}: {', '.join(not_found_pkgs)}")
                 continue
                 
             if not items_to_buy:
                 continue
                 
-            total_required_price = sum(item['price'] for item in items_to_buy)
+            line_price = sum(item['price'] for item in items_to_buy)
+            total_required_price += line_price
             
-            user_wallet = await db.get_reseller(tg_id)
-            user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
+            parsed_orders.append({
+                'game_id': game_id,
+                'zone_id': zone_id,
+                'raw_items_str': raw_items_str,
+                'items_to_buy': items_to_buy,
+                'line_price': line_price
+            })
             
-            if user_v_bal < total_required_price:
-                await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nNᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
-                continue
+        if not parsed_orders:
+            return
+
+        # 🟢 ၂။ ID အားလုံးအတွက် ကုန်ကျမည့် စုစုပေါင်း Balance ကို တစ်ခါတည်း စစ်ဆေးမည်
+        user_wallet = await db.get_reseller(tg_id)
+        user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
+        
+        if user_v_bal < total_required_price:
+            await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nTotal Nᴇᴇᴅᴇᴅ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
+            return
             
-            # 🟢 Order စတင်တဲ့ အချိန်
-            start_time = time.time()
-            
-            loading_msg = await message.reply(f"⏱ Order လက်ခံရရှိပါသည်... ခဏစောင့်ပေးပါ ᥫ᭡")
+        start_time = time.time()
+        loading_msg = await message.reply(f"⏱ ID ({len(parsed_orders)}) ခုစာ Order လက်ခံရရှိပါသည်... တစ်ပြိုင်နက်တည်း ဝယ်ယူနေပါသည် ᥫ᭡")
+
+        # 🟢 ၃။ ID တစ်ကြောင်းချင်းစီကို ဝယ်ယူမည့် Function အသေး
+        async def process_order_line(order):
+            game_id = order['game_id']
+            zone_id = order['zone_id']
+            raw_items_str = order['raw_items_str']
+            items_to_buy = order['items_to_buy']
             
             success_count, fail_count, total_spent = 0, 0, 0.0
             order_ids_str, ig_name, error_msg = "", "Unknown", ""
             actual_names_list = [] 
             
             async with api_semaphore:
-                await loading_msg.edit_text(f"Recharging Diam͟o͟n͟d͟ ● ᥫ᭡")
-                
-                # 🚀 ၁။ ပထမဆုံး Item တစ်ခုကို အရင်ဝယ်မည် (Account စစ်ရန်နှင့် Token ယူရန်)
                 first_item = items_to_buy[0]
                 first_result = await process_func(game_id, zone_id, first_item['pid'], currency, prev_context=None, skip_role_check=False, known_ig_name="Unknown")
                 
@@ -1164,11 +1180,9 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                     ig_name = first_result['ig_name']
                     actual_names_list.append(first_item.get('name', raw_items_str))
                     
-                    # 🚀 ၂။ ကျန်တဲ့ Item အားလုံး (ဥပမာ 11 ရော 22 ရော) ကို တစ်ပြိုင်နက်တည်း (Parallel) ပစ်မည်
                     if len(items_to_buy) > 1:
                         prev_context = {'csrf_token': first_result['csrf_token']}
                         remaining_items = items_to_buy[1:]
-                        
                         tasks = []
                         for item in remaining_items:
                             tasks.append(process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context, skip_role_check=True, known_ig_name=ig_name))
@@ -1188,54 +1202,70 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 else:
                     fail_count += 1
                     error_msg = first_result['message']
-            
-            # 🟢 Order ပြီးဆုံးတဲ့ အချိန်
-            time_taken_seconds = int(time.time() - start_time)
-            
-            if success_count > 0:
+                    
+            return {
+                'game_id': game_id, 'zone_id': zone_id, 'raw_items_str': raw_items_str,
+                'success_count': success_count, 'fail_count': fail_count, 'total_spent': total_spent,
+                'order_ids_str': order_ids_str, 'ig_name': ig_name, 'error_msg': error_msg,
+                'actual_names_list': actual_names_list
+            }
+
+        # 🚀 ၄။ ID စာကြောင်း အားလုံးကို တစ်ပြိုင်နက်တည်း (Parallel) Run လိုက်ပါပြီ
+        line_tasks = [process_order_line(order) for order in parsed_orders]
+        line_results = await asyncio.gather(*line_tasks)
+        
+        time_taken_seconds = int(time.time() - start_time)
+        await loading_msg.delete() # Loading စာသားကို ဖျက်ပြီး သီးသန့် Receipt များ ပြန်ပို့မည်
+
+        # 🟢 ၅။ ရလဒ်များကို ပြေစာများအဖြစ် ပြန်ထုတ်ပေးခြင်း
+        for res in line_results:
+            if res['success_count'] > 0:
                 now = datetime.datetime.now(MMT)
                 date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
                 
-                if currency == 'BR': await db.update_balance(tg_id, br_amount=-total_spent)
-                else: await db.update_balance(tg_id, ph_amount=-total_spent)
+                # Database Update လုပ်ခြင်း
+                if currency == 'BR': await db.update_balance(tg_id, br_amount=-res['total_spent'])
+                else: await db.update_balance(tg_id, ph_amount=-res['total_spent'])
                 
+                # ပြေစာအတွက် အတိအကျဖြစ်အောင် ဘာလန်းများကို တွက်ချက်ခြင်း
                 new_wallet = await db.get_reseller(tg_id)
                 new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
-                final_order_ids = order_ids_str.strip().replace('\n', ', ')
+                initial_bal_for_receipt = new_v_bal + res['total_spent']
                 
-                unique_names = list(set(actual_names_list))
+                final_order_ids = res['order_ids_str'].strip().replace('\n', ', ')
+                
+                unique_names = list(set(res['actual_names_list']))
                 if len(unique_names) == 1:
-                    final_item_name = f"{unique_names[0]} (x{success_count})" if success_count > 1 else unique_names[0]
+                    final_item_name = f"{unique_names[0]} (x{res['success_count']})" if res['success_count'] > 1 else unique_names[0]
                 else:
-                    # 🟢 မတူညီတဲ့ Item များကို ကော်မာ (,) ခြားပြီး ပြေစာတစ်ခုတည်းမှာ ပြသမည်
-                    final_item_name = ", ".join(actual_names_list)
+                    final_item_name = ", ".join(res['actual_names_list'])
 
                 await db.save_order(
-                    tg_id=tg_id, game_id=game_id, zone_id=zone_id, item_name=final_item_name,
-                    price=total_spent, order_id=final_order_ids, status="success"
+                    tg_id=tg_id, game_id=res['game_id'], zone_id=res['zone_id'], item_name=final_item_name,
+                    price=res['total_spent'], order_id=final_order_ids, status="success"
                 )
              
-                safe_ig_name = html.escape(str(ig_name))
+                safe_ig_name = html.escape(str(res['ig_name']))
                 safe_username = html.escape(str(username_display))
                 safe_item_name = html.escape(str(final_item_name)) 
                 
                 report = (
-                    f"<blockquote><code>**{title_prefix} {game_id} ({zone_id}) {raw_items_str.upper()} ({currency})**\n"
+                    f"<blockquote><code>**{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})**\n"
                     f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
                     f"ᴏʀᴅᴇʀ sᴛᴀᴛᴜs : ✅ Sᴜᴄᴄᴇss\n"
-                    f"ɢᴀᴍᴇ ɪᴅ      : {game_id} {zone_id}\n"
+                    f"ɢᴀᴍᴇ ɪᴅ      : {res['game_id']} {res['zone_id']}\n"
                     f"ɪɢ ɴᴀᴍᴇ      : {safe_ig_name}\n"
-                    f"sᴇʀɪᴀʟ        :\n{order_ids_str.strip()}\n"
+                    f"sᴇʀɪᴀʟ        :\n{res['order_ids_str'].strip()}\n"
                     f"ɪᴛᴇᴍ         : {safe_item_name}\n"
-                    f"sᴘᴇɴᴛ        : {total_spent:.2f} 🪙\n\n"
+                    f"sᴘᴇɴᴛ        : {res['total_spent']:.2f} 🪙\n\n"
                     f"ᴅᴀᴛᴇ         : {date_str}\n"
                     f"ᴜsᴇʀɴᴀᴍᴇ      : {safe_username}\n"
-                    f"ɪɴɪᴛɪᴀʟ      : ${user_v_bal:,.2f}\n"
+                    f"ɪɴɪᴛɪᴀʟ      : ${initial_bal_for_receipt:,.2f}\n"
                     f"ғɪɴᴀʟ        : ${new_v_bal:,.2f}\n\n"
-                    f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}\n"
+                    f"Sᴜᴄᴄᴇss {res['success_count']} / Fᴀɪʟ {res['fail_count']}\n"
                     f"Tɪᴍᴇ ᴛᴀᴋᴇɴ   : {time_taken_seconds} sᴇᴄᴏɴᴅs</code></blockquote>"
                 )
-                await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
+                await message.reply(report, parse_mode=ParseMode.HTML)
                 
                 if LOG_GROUP_ID:
                     json_date_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -1244,10 +1274,10 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
   "list": [
     {{
       "increment_id": "{final_order_ids}",
-      "user_id": "{game_id}",
-      "server_id": "{zone_id}",
+      "user_id": "{res['game_id']}",
+      "server_id": "{res['zone_id']}",
       "product_name": "{safe_item_name}",
-      "price": "{total_spent:.2f}",
+      "price": "{res['total_spent']:.2f}",
       "order_status": "success",
       "created_at": "{json_date_str}"
     }}
@@ -1258,9 +1288,10 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                     except Exception as e:
                         print(f"❌ Failed to send JSON report to Log Group: {e}")
                 
-                if fail_count > 0: await message.reply(f"Only partially successful.\nError: {error_msg}")
+                if res['fail_count'] > 0: 
+                    await message.reply(f"Only partially successful for {res['game_id']}.\nError: {res['error_msg']}")
             else:
-                await loading_msg.edit_text(f"❌ Order failed:\n{error_msg}")
+                await message.reply(f"❌ Order failed for {res['game_id']} ({res['zone_id']}):\n{res['error_msg']}")
 
 # ==========================================
 # 💎 PURCHASE COMMAND HANDLERS

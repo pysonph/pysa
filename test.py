@@ -62,7 +62,7 @@ dp = Dispatcher()
 # 🚀 ADVANCED CONCURRENCY & LOCK SYSTEM
 # ==========================================
 user_locks = defaultdict(asyncio.Lock)
-api_semaphore = asyncio.Semaphore(20) 
+api_semaphore = asyncio.Semaphore(3) 
 auth_lock = asyncio.Lock()  # 🟢 Auto-login ပြိုင်တူမဝင်စေရန် Lock
 last_login_time = 0         # 🟢 နောက်ဆုံး Login ဝင်ခဲ့သည့် အချိန်ကို မှတ်ထားရန်
 
@@ -1475,16 +1475,13 @@ async def schedule_daily_cookie_renewal():
         await asyncio.sleep(wait_seconds)
         
         print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 🚀 Executing Proactive Cookie Renewal...")
-        try: await bot.send_message(OWNER_ID, "🔄 <b>System:</b> Executing daily proactive cookie renewal (6:30 AM)...", parse_mode=ParseMode.HTML)
+        try: await bot.send_message(OWNER_ID, "🎉 <b>System:</b> Executing daily proactive cookie renewal (6:30 AM)...", parse_mode=ParseMode.HTML)
         except Exception: pass
 
         success = await auto_login_and_get_cookie()
         
         if success:
             try: await bot.send_message(OWNER_ID, "✅ <b>System:</b> Proactive cookie renewal successful. Ready for the day!", parse_mode=ParseMode.HTML)
-            except Exception: pass
-        else:
-            try: await bot.send_message(OWNER_ID, "❌ <b>System:</b> Proactive cookie renewal failed!", parse_mode=ParseMode.HTML)
             except Exception: pass
 
 
@@ -1836,6 +1833,88 @@ async def daily_reconciliation_task():
 
 
 # ==========================================
+# 🌅 AUTO GREETING FUNCTIONS (MORNING & NIGHT)
+# ==========================================
+async def send_broadcast_greeting(text: str):
+    """Bot အသုံးပြုခွင့်ရှိသူ (Approved Users) တိုင်းကို Message ပို့ပေးမည့် Function"""
+    users = await db.get_all_resellers()
+    success_count = 0
+    for u in users:
+        try:
+            tg_id = int(u['tg_id'])
+            await bot.send_message(chat_id=tg_id, text=text, parse_mode=ParseMode.HTML)
+            success_count += 1
+            # 🟢 Telegram Flood Limit (Block ခံရခြင်း) မဖြစ်စေရန် 0.1 စက္ကန့် နားပြီးမှ နောက်တစ်ယောက်ကို ပို့ပါမည်
+            await asyncio.sleep(0.1) 
+        except Exception as e:
+            # User က Bot ကို Block ထားရင် သို့မဟုတ် ဖျက်သွားရင် ဒီနေရာမှာ Error တက်ပြီး ကျော်သွားပါမည်
+            pass
+            
+    print(f"✅ Auto Greeting sent successfully to {success_count} users.")
+
+async def schedule_morning_greeting():
+    """မနက် ၆ နာရီတိတိတွင် မနက်ခင်း နှုတ်ခွန်းဆက်မည်"""
+    while True:
+        now = datetime.datetime.now(MMT)
+        target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        
+        # ယနေ့ မနက် ၆ နာရီ ကျော်သွားပြီဆိုလျှင် မနက်ဖြန် မနက် ၆ နာရီအတွက် သတ်မှတ်မည်
+        if now >= target:
+            target += datetime.timedelta(days=1)
+        
+        wait_seconds = (target - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+        
+        print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 🌅 Sending Morning Greetings...")
+        await send_broadcast_greeting("🌅 <b>သာယာသောမင်္ဂလာနံနက်ခင်းလေးဖြစ်ပါစေရှင့်🎉</b>")
+
+async def schedule_night_greeting():
+    """ည ၁၁:၃၀ တိတိတွင် ညချမ်း နှုတ်ခွန်းဆက်မည်"""
+    while True:
+        now = datetime.datetime.now(MMT)
+        target = now.replace(hour=23, minute=30, second=0, microsecond=0)
+        
+        # ယနေ့ ည ၁၁:၃၀ ကျော်သွားပြီဆိုလျှင် မနက်ဖြန် ည ၁၁:၃၀ အတွက် သတ်မှတ်မည်
+        if now >= target:
+            target += datetime.timedelta(days=1)
+        
+        wait_seconds = (target - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+        
+        print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 🌙 Sending Night Greetings...")
+        await send_broadcast_greeting("🌙 <b>Goodnight sweet dream 🎉</b>")
+
+
+# ==========================================
+# 🏦 SYSTEM BALANCE CHECK (OWNER သီးသန့်)
+# ==========================================
+@dp.message(or_f(Command("sysbal"), F.text.regexp(r"(?i)^\.sysbal$")))
+async def check_system_balance(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.reply("❌ You are not authorized. Only Owner can use this command.")
+        
+    loading_msg = await message.reply("📊 စနစ်တစ်ခုလုံး၏ မှတ်တမ်းကို တွက်ချက်နေပါသည်...")
+    
+    # Database မှ User အားလုံး၏ Balance စုစုပေါင်းကို ဆွဲယူမည်
+    try:
+        sys_balances = await db.get_total_system_balances()
+        
+        report = (
+            "🏦 <b>System V-Wallet Total Balances</b> 🏦\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 <b>User အားလုံးဆီရှိ စုစုပေါင်း ငွေကြေး:</b>\n\n"
+            f"🇧🇷 BR Balance : <code>${sys_balances['total_br']:,.2f}</code>\n"
+            f"🇵🇭 PH Balance : <code>${sys_balances['total_ph']:,.2f}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "<i>(မှတ်ချက်: ဤပမာဏသည် User အားလုံးထံသို့ Admin မှ ထည့်ပေးထားသော လက်ကျန်ငွေများ၏ စုစုပေါင်းဖြစ်ပါသည်။)</i>"
+        )
+        
+        await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await loading_msg.edit_text(f"❌ Error calculating system balance: {e}")
+
+
+# ==========================================
 # 📋 AUTO FORMAT & COPY BUTTON (SMART WP FIX)
 # ==========================================
 @dp.message(or_f(
@@ -2034,7 +2113,7 @@ async def main():
     print("Starting Heartbeat & Auto-login tasks...")
     print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်.....")
     
-    # 🟢 Concurrency အတွက် Thread Pool Limit ကို main() ထဲတွင်သာ သတ်မှတ်ပါ
+    # 🟢 Concurrency အတွက် Thread Pool Limit
     loop = asyncio.get_running_loop()
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=50))
     
@@ -2042,6 +2121,10 @@ async def main():
     asyncio.create_task(keep_cookie_alive())
     asyncio.create_task(schedule_daily_cookie_renewal())
     asyncio.create_task(daily_reconciliation_task())
+    
+    # 🟢 နှုတ်ခွန်းဆက် Task အသစ်များ ထည့်သွင်းခြင်း
+    asyncio.create_task(schedule_morning_greeting())
+    asyncio.create_task(schedule_night_greeting())
     
     # Database Initialization
     await db.setup_indexes()
@@ -2053,5 +2136,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    
     asyncio.run(main())

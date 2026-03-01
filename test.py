@@ -33,6 +33,7 @@ import database as db
 load_dotenv()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+# API_ID နှင့် API_HASH တို့သည် Aiogram တွင် မလိုအပ်ပါ။
 OWNER_ID = int(os.getenv('OWNER_ID', 1318826936)) 
 FB_EMAIL = os.getenv('FB_EMAIL')
 FB_PASS = os.getenv('FB_PASS')
@@ -51,9 +52,9 @@ dp = Dispatcher()
 # 🚀 ADVANCED CONCURRENCY & LOCK SYSTEM
 # ==========================================
 user_locks = defaultdict(asyncio.Lock)
-api_semaphore = asyncio.Semaphore(5)  # 🟢 Cloudflare block မခံရစေရန် 5 သို့ ပြောင်းထားပါသည်
-auth_lock = asyncio.Lock()  
-last_login_time = 0         
+api_semaphore = asyncio.Semaphore(20) 
+auth_lock = asyncio.Lock()  # 🟢 Auto-login ပြိုင်တူမဝင်စေရန် Lock
+last_login_time = 0         # 🟢 နောက်ဆုံး Login ဝင်ခဲ့သည့် အချိန်ကို မှတ်ထားရန်
 
 # ==========================================
 # 🍪 MAIN SCRAPER (CURL_CFFI FOR CLOUDFLARE BYPASS)
@@ -67,6 +68,7 @@ async def get_main_scraper():
                 k, v = item.strip().split('=', 1)
                 cookie_dict[k.strip()] = v.strip()
                 
+    # 🟢 curl_cffi ဖြင့် Chrome 120 အဖြစ် ဟန်ဆောင်မည် (Cloudflare ကို အလွယ်တကူ ကျော်ဖြတ်နိုင်ရန်)
     scraper = cffi_requests.Session(impersonate="chrome120", cookies=cookie_dict)
     return scraper
 
@@ -80,7 +82,9 @@ async def auto_login_and_get_cookie():
         print("❌ FB_EMAIL and FB_PASS are missing in .env.")
         return False
         
+    # 🟢 သော့ခတ်ပါမည် (လူအများ ပြိုင်တူ Login ဝင်ခြင်းကို တားဆီးမည်)
     async with auth_lock:
+        # 🟢 Double-Checked Locking (လွန်ခဲ့သော ၂ မိနစ်အတွင်း Login အောင်မြင်ထားလျှင် ထပ်မဝင်ပါ)
         if time.time() - last_login_time < 120:
             print("✅ ရှေ့ကလူ Cookie အသစ်ယူပေးသွားလို့ Login ထပ်ဝင်စရာမလိုတော့ပါ။")
             return True
@@ -126,23 +130,18 @@ async def auto_login_and_get_cookie():
                     await db.update_main_cookie(raw_cookie_str)
                     await browser.close()
                     
+                    # 🟢 အောင်မြင်သွားလျှင် နောက်ဆုံး Login ဝင်ခဲ့သည့် အချိန်ကို မှတ်ထားပါမည်
                     last_login_time = time.time()
                     return True
                     
                 except Exception as wait_e:
-                    print(f"❌ Did not reach the Order page: {wait_e}")
+                    print(f"❌ Did not reach the Order page. (Possible Facebook Checkpoint): {wait_e}")
                     await browser.close()
                     return False
                 
         except Exception as e:
             print(f"❌ Error during Auto-Login: {e}")
             return False
-
-async def notify_owner(text: str):
-    try:
-        await bot.send_message(chat_id=OWNER_ID, text=text, parse_mode=ParseMode.HTML)
-    except Exception as e:
-        print(f"Owner ထံသို့ Message ပို့၍မရပါ: {e}")
 
 # ==========================================
 # 📌 PACKAGES
@@ -194,7 +193,6 @@ BR_PACKAGES = {
 
 PH_PACKAGES = {
     '11': [{'pid': '212', 'price': 9.50, 'name': '11 💎'}],
-    'b33': [{'pid': '212', 'price': 9.50, 'name': '11 💎'}, {'pid': '213', 'price': 19.00, 'name': '22 💎'}],
     '22': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}],
     '33': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}, {'pid': '212', 'price': 9.50, 'name': '11 💎'}],
     '44': [{'pid': '213', 'price': 19.00, 'name': '22 💎'}, {'pid': '213', 'price': 19.00, 'name': '22 💎'}],
@@ -300,7 +298,7 @@ async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one
 # ==========================================
 # 3. FAST SMILE.ONE SCRAPER FUNCTION (MLBB) [SPEED OPTIMIZED]
 # ==========================================
-async def process_smile_one_order(game_id, zone_id, product_id, currency_name, prev_context=None, skip_checkrole=False):
+async def process_smile_one_order(game_id, zone_id, product_id, currency_name, prev_context=None):
     scraper = await get_main_scraper()
 
     if currency_name == 'PH':
@@ -322,8 +320,10 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
     }
 
     try:
-        csrf_token = prev_context.get('csrf_token') if prev_context else None
+        csrf_token = None
         ig_name = "Unknown"
+        
+        if prev_context: csrf_token = prev_context.get('csrf_token')
 
         if not csrf_token:
             response = await asyncio.to_thread(scraper.get, main_url, headers=headers)
@@ -336,20 +336,17 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
 
             if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Re-add Cookie."}
 
-        # 🟢 1. Check Role
-        if not skip_checkrole:
-            check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
-            role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
-            try:
-                role_result = role_response_raw.json()
-                ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
-                if not ig_name or str(ig_name).strip() == "":
-                    return {"status": "error", "message": "❌ Invalid Account: Account not found."}
-            except Exception: return {"status": "error", "message": "Check Role API Error: Cannot verify account."}
-        else:
-            ig_name = "Skipped"
+        # 🟢 1. Check Role 
+        check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
+        role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
+        try:
+            role_result = role_response_raw.json()
+            ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
+            if not ig_name or str(ig_name).strip() == "":
+                return {"status": "error", "message": "❌ Invalid Account: Account not found."}
+        except Exception: return {"status": "error", "message": "Check Role API Error: Cannot verify account."}
 
-        # 🟢 2. Query
+        # 🟢 2. Query (Request Flow ID)
         query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
         query_response_raw = await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
         
@@ -361,50 +358,50 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
         if not flowid:
             real_error = query_result.get('msg') or query_result.get('message') or ""
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
-                await notify_owner("⚠️ <b>Order Alert:</b> Cookie သက်တမ်းကုန်သွားပါပြီ။ Auto-login စတင်နေပါသည်...")
+                await notify_owner("⚠️ <b>Order Alert:</b> Cookie သက်တမ်းကုန်သွားပါပြီ။ အော်ဒါဝယ်နေစဉ် Auto-login စတင်နေပါသည်...")
                 success = await auto_login_and_get_cookie()
                 if success: return {"status": "error", "message": "Session renewed. Please try again."}
                 else: return {"status": "error", "message": "❌ Auto-Login failed. Please /setcookie."}
             return {"status": "error", "message": f"❌ Query Failed: {real_error}"}
 
-        # 🟢 3. Fast Pay
+        # 🟢 3. Pay (Order History မှ ဆွဲယူခြင်းကို ကျော်ဖြတ်ပြီး တိုက်ရိုက်ပေးချေမည်)
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
         pay_response_raw = await asyncio.to_thread(scraper.post, pay_url, data=pay_data, headers=headers)
         pay_text = pay_response_raw.text.lower()
         
         if "saldo insuficiente" in pay_text or "insufficient" in pay_text:
-            return {"status": "error", "message": "Insufficient balance in the Main account."}
+            return {"status": "error", "message": "Insufficient balance in the Main Smile.one account."}
         
         is_success = False
+        # 🟢 History မှ Order ID မယူတော့သဖြင့် Query မှရသော Flow ID ကိုသာ အသုံးပြုမည်
         real_order_id = f"FAST-{flowid}" 
 
         try:
             pay_json = pay_response_raw.json()
-            code = str(pay_json.get('code', pay_json.get('status', '')))
-            msg = str(pay_json.get('msg', pay_json.get('message', ''))).lower()
-            if code in ['200', '201', '0', '1'] or 'success' in msg or 'sucesso' in msg or 'ok' in msg: 
+            code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
+            if code in ['200', '0', '1'] or 'success' in msg: 
                 is_success = True
             else: 
-                err_text = pay_json.get('msg', pay_json.get('message', 'Payment failed.'))
-                return {"status": "error", "message": f"API Error: {err_text}"}
+                return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
         except:
-            if 'success' in pay_text or 'sucesso' in pay_text or 'ok' in pay_text: 
+            if 'success' in pay_text or 'sucesso' in pay_text: 
                 is_success = True
-            else:
-                raw_error = pay_response_raw.text[:100].strip()
-                if "<html" in raw_error.lower() or "cloudflare" in raw_error.lower():
-                    return {"status": "error", "message": "Session Expired or Blocked by Cloudflare."}
-                return {"status": "error", "message": f"Raw API Error"}
 
         if is_success:
-            return {"status": "success", "ig_name": ig_name, "order_id": real_order_id, "csrf_token": csrf_token, "product_name": ""}
+            return {
+                "status": "success", 
+                "ig_name": ig_name, 
+                "order_id": real_order_id, 
+                "csrf_token": csrf_token, 
+                "product_name": "" # အမည်ကို Package ထဲမှသာ ယူသုံးမည်
+            }
         else:
             return {"status": "error", "message": "Payment Verification Failed."}
 
     except Exception as e: return {"status": "error", "message": f"System Error: {str(e)}"}
 
-# 🌟 3.1 FAST MAGIC CHESS SCRAPER FUNCTION
-async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_context=None, skip_checkrole=False):
+# 🌟 3.1 FAST MAGIC CHESS SCRAPER FUNCTION [SPEED OPTIMIZED]
+async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_context=None):
     scraper = await get_main_scraper()
 
     if currency_name == 'PH':
@@ -426,40 +423,57 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
     }
 
     try:
-        csrf_token = prev_context.get('csrf_token') if prev_context else None
+        csrf_token = None
         ig_name = "Unknown"
+        
+        if prev_context:
+            csrf_token = prev_context.get('csrf_token')
 
         if not csrf_token:
             response = await asyncio.to_thread(scraper.get, main_url, headers=headers)
+            if response.status_code in [403, 503] or "cloudflare" in response.text.lower():
+                 return {"status": "error", "message": "Blocked by Cloudflare."}
+
             soup = BeautifulSoup(response.text, 'html.parser')
             meta_tag = soup.find('meta', {'name': 'csrf-token'})
             if meta_tag: csrf_token = meta_tag.get('content')
             else:
                 csrf_input = soup.find('input', {'name': '_csrf'})
                 if csrf_input: csrf_token = csrf_input.get('value')
-            if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Add a new Cookie."}
 
-        if not skip_checkrole:
-            check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
-            role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
-            try:
-                role_result = role_response_raw.json()
-                ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
-                if not ig_name or str(ig_name).strip() == "":
-                    return {"status": "error", "message": " Account not found."}
-            except Exception: return {"status": "error", "message": "Check Role API Error"}
-        else:
-            ig_name = "Skipped"
+            if not csrf_token: return {"status": "error", "message": "CSRF Token not found. Add a new Cookie using /setcookie."}
 
+        # 🟢 Check Role
+        check_data = {'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}
+        role_response_raw = await asyncio.to_thread(scraper.post, checkrole_url, data=check_data, headers=headers)
+        try:
+            role_result = role_response_raw.json()
+            ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
+            if not ig_name or str(ig_name).strip() == "":
+                return {"status": "error", "message": " Account not found."}
+        except Exception: return {"status": "error", "message": "⚠️ Check Role API Error: Cannot verify account."}
+
+        # 🟢 Query
         query_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': product_id, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
         query_response_raw = await asyncio.to_thread(scraper.post, query_url, data=query_data, headers=headers)
+        
         try: query_result = query_response_raw.json()
         except Exception: return {"status": "error", "message": "Query API Error"}
             
         flowid = query_result.get('flowid') or query_result.get('data', {}).get('flowid')
+        
         if not flowid:
+            real_error = query_result.get('msg') or query_result.get('message') or ""
+            if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
+                await notify_owner("⚠️ <b>Order Alert:</b> Cookie သက်တမ်းကုန်သွားပါပြီ။ အော်ဒါဝယ်နေစဉ် Auto-login စတင်နေပါသည်...")
+                success = await auto_login_and_get_cookie()
+                if success:
+                    return {"status": "error", "message": "Session renewed. Please enter the command again."}
+                else: 
+                    return {"status": "error", "message": "❌ Auto-Login failed. Please provide /setcookie again."}
             return {"status": "error", "message": "Invalid account or unable to purchase."}
 
+        # 🟢 Pay (Order History ကို ကျော်ဖြတ်မည်)
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
         pay_response_raw = await asyncio.to_thread(scraper.post, pay_url, data=pay_data, headers=headers)
         pay_text = pay_response_raw.text.lower()
@@ -472,165 +486,30 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
 
         try:
             pay_json = pay_response_raw.json()
-            code = str(pay_json.get('code', pay_json.get('status', '')))
-            msg = str(pay_json.get('msg', pay_json.get('message', ''))).lower()
-            if code in ['200', '0', '1'] or 'success' in msg or 'ok' in msg: is_success = True
-            else: return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
+            code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
+            if code in ['200', '0', '1'] or 'success' in msg: 
+                is_success = True
+            else: 
+                return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
         except:
-            if 'success' in pay_text or 'sucesso' in pay_text or 'ok' in pay_text: is_success = True
+            if 'success' in pay_text or 'sucesso' in pay_text: 
+                is_success = True
 
-        if is_success: return {"status": "success", "ig_name": ig_name, "order_id": real_order_id, "csrf_token": csrf_token, "product_name": ""}
-        else: return {"status": "error", "message": "Payment Verification Failed."}
+        if is_success:
+            return {"status": "success", "ig_name": ig_name, "order_id": real_order_id, "csrf_token": csrf_token, "product_name": ""}
+        else:
+            return {"status": "error", "message": "Payment Verification Failed."}
+
     except Exception as e: return {"status": "error", "message": f"System Error: {str(e)}"}
 
 # ==========================================
 # 4. 🛡️ FUNCTION TO CHECK AUTHORIZATION
 # ==========================================
 async def is_authorized(user_id: int):
-    if user_id == OWNER_ID: return True
+    if user_id == OWNER_ID:
+        return True
     user = await db.get_reseller(str(user_id))
     return user is not None
-
-# ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER [FAST & SEQUENTIAL]
-# ==========================================
-async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
-    tg_id = str(message.from_user.id)
-    telegram_user = message.from_user.username
-    username_display = f"@{telegram_user}" if telegram_user else tg_id
-    v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
-    
-    async with user_locks[tg_id]: 
-        for line in lines:
-            line = line.strip()
-            if not line: continue 
-            
-            match = re.search(regex_pattern, line)
-            if not match:
-                await message.reply(f"Invalid format: `{line}`")
-                continue
-                
-            game_id, zone_id, item_input = match.group(1), match.group(2), match.group(3).lower() 
-            
-            active_packages = None
-            if isinstance(packages_dict, list):
-                for p_dict in packages_dict:
-                    if item_input in p_dict:
-                        active_packages = p_dict
-                        break
-            else:
-                if item_input in packages_dict: active_packages = packages_dict
-                    
-            if not active_packages:
-                await message.reply(f"❌ No Package found for '{item_input}'.")
-                continue
-                
-            items_to_buy = active_packages[item_input]
-            total_required_price = sum(item['price'] for item in items_to_buy)
-            
-            user_wallet = await db.get_reseller(tg_id)
-            user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
-            
-            if user_v_bal < total_required_price:
-                await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nNᴇᴇᴅ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
-                continue
-            
-            loading_msg = await message.reply(f"⏱ Order လက်ခံရရှိပါသည်... ခဏစောင့်ပေးပါ ᥫ᭡")
-            
-            success_count, fail_count, total_spent = 0, 0, 0.0
-            order_ids_str, ig_name, error_msg = "", "Unknown", ""
-            prev_context, actual_names_list = None, []
-            
-            # 🟢 Fast Checkout (Sequential Item Check)
-            async with api_semaphore:
-                await loading_msg.edit_text(f"⚡ Recharging Diam͟o͟n͟d͟ (Fast Mode) ● ᥫ᭡")
-                is_first_item = True
-                
-                for item in items_to_buy:
-                    should_skip_checkrole = not is_first_item 
-                    
-                    result = await process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context, skip_checkrole=should_skip_checkrole)
-                    
-                    if result['status'] == 'success':
-                        prev_context = {'csrf_token': result['csrf_token']}
-                        if is_first_item and result.get('ig_name') and result['ig_name'] != "Skipped":
-                            ig_name = result['ig_name'] 
-                        is_first_item = False 
-                        
-                        fetched_name = result.get('product_name', '').strip() or item.get('name', item_input)
-                        actual_names_list.append(fetched_name)
-
-                        success_count += 1
-                        total_spent += item['price']
-                        order_ids_str += f"{result['order_id']}\n" 
-                        await asyncio.sleep(0.5) 
-                    else:
-                        fail_count += 1
-                        error_msg = result['message']
-                        break 
-            
-            if success_count > 0:
-                now = datetime.datetime.now(MMT)
-                date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
-                
-                if currency == 'BR': await db.update_balance(tg_id, br_amount=-total_spent)
-                else: await db.update_balance(tg_id, ph_amount=-total_spent)
-                
-                new_wallet = await db.get_reseller(tg_id)
-                new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
-                final_order_ids = order_ids_str.strip().replace('\n', ', ')
-                
-                unique_names = list(set(actual_names_list))
-                if len(unique_names) == 1:
-                    final_item_name = f"{unique_names[0]} (x{success_count})" if success_count > 1 else unique_names[0]
-                else:
-                    final_item_name = ", ".join(actual_names_list)
-
-                await db.save_order(tg_id=tg_id, game_id=game_id, zone_id=zone_id, item_name=final_item_name, price=total_spent, order_id=final_order_ids, status="success")
-             
-                safe_ig_name = html.escape(str(ig_name))
-                safe_username = html.escape(str(username_display))
-                safe_item_name = html.escape(str(final_item_name)) 
-                
-                response_code = 200
-                report = (
-                    f"<blockquote><code>**{title_prefix} {game_id} ({zone_id}) {item_input} ({currency})**\n"
-                    f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
-                    f"ᴏʀᴅᴇʀ sᴛᴀᴛᴜs : ✅ Sᴜᴄᴄᴇss\n"
-                    f"ɢᴀᴍᴇ ɪᴅ      : {game_id} {zone_id}\n"
-                    f"ɪɢ ɴᴀᴍᴇ      : {safe_ig_name}\n"
-                    f"sᴇʀɪᴀʟ        :\n{order_ids_str.strip()}\n"
-                    f"ɪᴛᴇᴍ         : {safe_item_name}\n"
-                    f"sᴘᴇɴᴛ        : {total_spent:.2f} 🪙\n\n"
-                    f"ᴅᴀᴛᴇ         : {date_str}\n"
-                    f"ᴜsᴇʀɴᴀᴍᴇ      : {safe_username}\n"
-                    f"ɪɴɪᴛɪᴀʟ      : ${user_v_bal:,.2f}\n"
-                    f"ғɪɴᴀʟ        : ${new_v_bal:,.2f}\n\n"
-                    f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}\n\n"
-                    f"====== code {response_code} ======</code></blockquote>"
-                )
-                await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
-                
-                json_date_str = now.strftime("%Y-%m-%d %H:%M:%S")
-                json_report = f"""{{
-  "code": {response_code},
-  "list": [
-    {{
-      "increment_id": "{final_order_ids}",
-      "user_id": "{game_id}",
-      "server_id": "{zone_id}",
-      "product_name": "{safe_item_name}",
-      "price": "{total_spent:.2f}",
-      "order_status": "success",
-      "created_at": "{json_date_str}"
-    }}
-  ]
-}}"""
-                await message.reply(f"<code>{json_report}</code>", parse_mode=ParseMode.HTML)
-                
-                if fail_count > 0: await message.reply(f"Only partially successful.\nError: {error_msg}")
-            else:
-                await loading_msg.edit_text(f"❌ Order failed:\n{error_msg}")
 
 # ==========================================
 # 5. RESELLER MANAGEMENT & COMMANDS
@@ -638,25 +517,16 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
 @dp.message(or_f(Command("add"), F.text.regexp(r"(?i)^\.add(?:$|\s+)")))
 async def add_reseller(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
-    
-    target_id = None
-    if message.reply_to_message:
-        target_id = str(message.reply_to_message.from_user.id)
-    else:
-        parts = message.text.split()
-        if len(parts) >= 2:
-            target_id = parts[1].strip()
-            
-    if not target_id: 
-        return await message.reply("⚠️ **Usage:** `/add <user_id>`\n💡 (သို့မဟုတ်) User ရဲ့ စာကို Reply ပြန်ပြီး `.add` ဟု ရိုက်ထည့်၍လည်း ရပါသည်။")
+    parts = message.text.split()
+    if len(parts) < 2: return await message.reply("`/add <user_id>`")
         
-    if not target_id.isdigit(): 
-        return await message.reply("❌ Please enter the User ID in numbers only.")
+    target_id = parts[1].strip()
+    if not target_id.isdigit(): return await message.reply("Please enter the User ID in numbers only.")
         
     if await db.add_reseller(target_id, f"User_{target_id}"):
         await message.reply(f"✅ Reseller ID `{target_id}` has been approved.")
     else:
-        await message.reply(f"⚠️ Reseller ID `{target_id}` is already in the list.")
+        await message.reply(f"Reseller ID `{target_id}` is already in the list.")
 
 @dp.message(or_f(Command("remove"), F.text.regexp(r"(?i)^\.remove(?:$|\s+)")))
 async def remove_reseller(message: types.Message):
@@ -699,110 +569,200 @@ async def set_cookie_command(message: types.Message):
 # ==========================================
 @dp.message(F.text.contains("PHPSESSID") & F.text.contains("cf_clearance"))
 async def handle_smart_cookie_update(message: types.Message):
+    # 🟢 Owner သာလျှင် အသုံးပြုခွင့်ရှိမည်
     if message.from_user.id != OWNER_ID: 
         return await message.reply("❌ You are not authorized.")
 
     text = message.text
+    
+    # 🟢 ဆွဲထုတ်ရမည့် အဓိက Cookie နာမည်များ (လိုအပ်ပါက ထပ်တိုးနိုင်သည်)
     target_keys = ["PHPSESSID", "cf_clearance", "__cf_bm", "_did", "_csrf"]
     extracted_cookies = {}
 
     try:
         for key in target_keys:
+            # 🟢 Python Dict ('key': 'val') နှင့် Header (key=val;) ပုံစံ နှစ်မျိုးလုံးကို ဖမ်းနိုင်သော Regex
             pattern = rf"['\"]?{key}['\"]?\s*[:=]\s*['\"]?([^'\",;\s}}]+)['\"]?"
             match = re.search(pattern, text)
             if match:
                 extracted_cookies[key] = match.group(1)
 
+        # 🟢 PHPSESSID နှင့် cf_clearance သည် မပါမဖြစ် လိုအပ်ပါသည်
         if "PHPSESSID" not in extracted_cookies or "cf_clearance" not in extracted_cookies:
-            return await message.reply("❌ <b>Error:</b> `PHPSESSID` နှင့် `cf_clearance` ကို ရှာမတွေ့ပါ။", parse_mode=ParseMode.HTML)
+            return await message.reply("❌ <b>Error:</b> `PHPSESSID` နှင့် `cf_clearance` ကို ရှာမတွေ့ပါ။ Format မှန်ကန်ကြောင်း စစ်ဆေးပါ။", parse_mode=ParseMode.HTML)
 
+        # 🟢 Dictionary မှ "key=value; key=value;" ပုံစံ String အဖြစ် ပြောင်းလဲခြင်း
         formatted_cookie_str = "; ".join([f"{k}={v}" for k, v in extracted_cookies.items()])
+
+        # 🟢 Database သို့ သိမ်းဆည်းခြင်း
         await db.update_main_cookie(formatted_cookie_str)
         
+        # 🟢 အောင်မြင်ကြောင်းပြသရန် Message ဖန်တီးခြင်း
         success_msg = "✅ <b>Cookies Successfully Extracted & Saved!</b>\n\n"
         success_msg += "📦 <b>Extracted Data:</b>\n"
         
         for k, v in extracted_cookies.items():
+            # 🟢 စာသားအရမ်းရှည်နေပါက အလယ်ကိုဖြတ်ပြီး အတိုချုံးပြသမည် (ဥပမာ - cf_clearance)
             display_v = f"{v[:15]}...{v[-15:]}" if len(v) > 35 else v
             success_msg += f"🔸 <code>{k}</code> : {display_v}\n"
 
         success_msg += f"\n🍪 <b>Formatted Final String:</b>\n<code>{formatted_cookie_str}</code>"
+
         await message.reply(success_msg, parse_mode=ParseMode.HTML)
         
     except Exception as e:
         await message.reply(f"❌ <b>Parsing Error:</b> {str(e)}", parse_mode=ParseMode.HTML)
 
 # ==========================================
-# 💰 MANUAL BALANCE ADDITION & DEDUCTION
+# 💰 MANUAL BALANCE ADDITION (OWNER ONLY)
 # ==========================================
 @dp.message(or_f(Command("addbal"), F.text.regexp(r"(?i)^\.addbal(?:$|\s+)")))
 async def add_balance_command(message: types.Message):
-    if message.from_user.id != OWNER_ID: return await message.reply("❌ You are not authorized.")
+    # 🟢 Owner သာလျှင် ဤ Command ကို အသုံးပြုခွင့်ရှိပါမည်
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ You are not authorized to use this command.")
         
     parts = message.text.strip().split()
+    
+    # 🟢 Format မှန်/မမှန် စစ်ဆေးခြင်း
     if len(parts) < 3:
-        return await message.reply("⚠️ **Usage format:**\n`.addbal <User_ID> <Amount> [BR/PH]`")
+        return await message.reply(
+            "⚠️ **Usage format:**\n"
+            "`.addbal <User_ID> <Amount> [BR/PH]`\n"
+            "**Example:** `.addbal 123456789 50 BR`"
+        )
         
     target_id = parts[1]
-    try: amount = float(parts[2])
-    except ValueError: return await message.reply("❌ Invalid amount.")
+    
+    # 🟢 ဂဏန်း ဟုတ်/မဟုတ် စစ်ဆေးခြင်း
+    try:
+        amount = float(parts[2])
+    except ValueError:
+        return await message.reply("❌ Invalid amount. Please enter numbers only.")
         
+    # 🟢 နိုင်ငံ (Currency) ရွေးချယ်ခြင်း (ပုံသေ BR ဟု သတ်မှတ်ထားမည်)
     currency = "BR"
     if len(parts) > 3:
         currency = parts[3].upper()
-        if currency not in ['BR', 'PH']: return await message.reply("❌ Invalid currency.")
+        if currency not in ['BR', 'PH']:
+            return await message.reply("❌ Invalid currency. Please use 'BR' or 'PH'.")
             
+    # 🟢 User ကို Database ထဲတွင် ရှိ/မရှိ စစ်ဆေးခြင်း
     target_wallet = await db.get_reseller(target_id)
-    if not target_wallet: return await message.reply(f"❌ User ID `{target_id}` not found.")
+    if not target_wallet:
+        return await message.reply(f"❌ User ID `{target_id}` not found in the database. Please `/add {target_id}` first.")
         
-    if currency == 'BR': await db.update_balance(target_id, br_amount=amount)
-    else: await db.update_balance(target_id, ph_amount=amount)
+    # 🟢 Balance ပေါင်းထည့်ပေးခြင်း
+    if currency == 'BR':
+        await db.update_balance(target_id, br_amount=amount)
+    else:
+        await db.update_balance(target_id, ph_amount=amount)
         
+    # 🟢 ပေါင်းထည့်ပြီးနောက် လက်ရှိ Balance ကို ပြန်ခေါ်ခြင်း
     updated_wallet = await db.get_reseller(target_id)
     new_br = updated_wallet.get('br_balance', 0.0)
     new_ph = updated_wallet.get('ph_balance', 0.0)
     
-    await message.reply(f"✅ **Balance Added!**\n👤 ID: `{target_id}`\n💰 Added: `+{amount:,.2f} {currency}`\n\n📊 **Balance:**\n🇧🇷 BR: `${new_br:,.2f}`\n🇵🇭 PH: `${new_ph:,.2f}`")
+    # 🟢 Owner ထံသို့ အောင်မြင်ကြောင်း ပြန်လည်အကြောင်းကြားခြင်း
+    await message.reply(
+        f"✅ **Balance Added Successfully!**\n\n"
+        f"👤 **User ID:** `{target_id}`\n"
+        f"💰 **Added:** `+{amount:,.2f} {currency}`\n\n"
+        f"📊 **Current Balance:**\n"
+        f"🇧🇷 BR: `${new_br:,.2f}`\n"
+        f"🇵🇭 PH: `${new_ph:,.2f}`"
+    )
     
+    # 🟢 User ထံသို့ ပိုက်ဆံဝင်ကြောင်း အလိုအလျောက် သွားရောက်အသိပေးခြင်း (Notification)
     try:
-        await bot.send_message(chat_id=int(target_id), text=f"🎉 **Top-Up Alert!**\n\nAdmin has successfully added `+{amount:,.2f} {currency}` to your V-Wallet.\nType `.balance` to check.")
-    except: pass
+        await bot.send_message(
+            chat_id=int(target_id),
+            text=(
+                f"🎉 **Top-Up Alert!**\n\n"
+                f"Admin has successfully added `+{amount:,.2f} {currency}` to your V-Wallet.\n\n"
+                f"Type `.balance` to check your latest balance."
+            )
+        )
+    except Exception as e:
+        print(f"User {target_id} သို့ Noti ပို့၍မရပါ။ (User သည် Bot အား Block ထားခြင်း ဖြစ်နိုင်ပါသည်) - Error: {e}")
 
-@dp.message(or_f(Command("deduct"), F.text.regexp(r"(?i)^\.deduct(?:$|\s+)")))
-async def deduct_balance_command(message: types.Message):
-    if message.from_user.id != OWNER_ID: return await message.reply("❌ You are not authorized.")
-        
-    parts = message.text.strip().split()
-    if len(parts) < 3:
-        return await message.reply("⚠️ **Usage format:**\n`.deduct <User_ID> <Amount> [BR/PH]`")
-        
-    target_id = parts[1]
-    try: amount = abs(float(parts[2]))
-    except ValueError: return await message.reply("❌ Invalid amount.")
-        
-    currency = "BR"
-    if len(parts) > 3:
-        currency = parts[3].upper()
-        if currency not in ['BR', 'PH']: return await message.reply("❌ Invalid currency.")
-            
-    target_wallet = await db.get_reseller(target_id)
-    if not target_wallet: return await message.reply(f"❌ User ID `{target_id}` not found.")
-        
-    if currency == 'BR': await db.update_balance(target_id, br_amount=-amount)
-    else: await db.update_balance(target_id, ph_amount=-amount)
-        
-    updated_wallet = await db.get_reseller(target_id)
-    new_br = updated_wallet.get('br_balance', 0.0)
-    new_ph = updated_wallet.get('ph_balance', 0.0)
-    
-    await message.reply(f"✅ **Balance Deducted!**\n👤 ID: `{target_id}`\n💸 Deducted: `-{amount:,.2f} {currency}`\n\n📊 **Balance:**\n🇧🇷 BR: `${new_br:,.2f}`\n🇵🇭 PH: `${new_ph:,.2f}`")
-    
-    try:
-        await bot.send_message(chat_id=int(target_id), text=f"⚠️ **Deduction Alert!**\n\nAdmin has deducted `-{amount:,.2f} {currency}` from your V-Wallet.\nType `.balance` to check.")
-    except: pass
 
 # ==========================================
-# 💳 SMILE CODE TOP-UP COMMAND (FULLY FIXED)
+# 💸 MANUAL BALANCE DEDUCTION (OWNER ONLY)
+# ==========================================
+@dp.message(or_f(Command("deduct"), F.text.regexp(r"(?i)^\.deduct(?:$|\s+)")))
+async def deduct_balance_command(message: types.Message):
+    # 🟢 Owner သာလျှင် ဤ Command ကို အသုံးပြုခွင့်ရှိပါမည်
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ You are not authorized to use this command.")
+        
+    parts = message.text.strip().split()
+    
+    # 🟢 Format မှန်/မမှန် စစ်ဆေးခြင်း
+    if len(parts) < 3:
+        return await message.reply(
+            "⚠️ **Usage format:**\n"
+            "`.deduct <User_ID> <Amount> [BR/PH]`\n"
+            "**Example:** `.deduct 123456789 50 BR`"
+        )
+        
+    target_id = parts[1]
+    
+    # 🟢 ဂဏန်း ဟုတ်/မဟုတ် စစ်ဆေးခြင်း (အနှုတ်လက္ခဏာပါလာလျှင်တောင် အပေါင်းဂဏန်းအဖြစ် အရင်ပြောင်းပါမည်)
+    try:
+        amount = abs(float(parts[2]))
+    except ValueError:
+        return await message.reply("❌ Invalid amount. Please enter numbers only.")
+        
+    # 🟢 နိုင်ငံ (Currency) ရွေးချယ်ခြင်း (ပုံသေ BR ဟု သတ်မှတ်ထားမည်)
+    currency = "BR"
+    if len(parts) > 3:
+        currency = parts[3].upper()
+        if currency not in ['BR', 'PH']:
+            return await message.reply("❌ Invalid currency. Please use 'BR' or 'PH'.")
+            
+    # 🟢 User ကို Database ထဲတွင် ရှိ/မရှိ စစ်ဆေးခြင်း
+    target_wallet = await db.get_reseller(target_id)
+    if not target_wallet:
+        return await message.reply(f"❌ User ID `{target_id}` not found in the database.")
+        
+    # 🟢 Balance နှုတ်ယူခြင်း (Amount ရှေ့တွင် အနှုတ်လက္ခဏာ "-" တပ်၍ ပေးပို့ရပါမည်)
+    if currency == 'BR':
+        await db.update_balance(target_id, br_amount=-amount)
+    else:
+        await db.update_balance(target_id, ph_amount=-amount)
+        
+    # 🟢 နှုတ်ယူပြီးနောက် လက်ရှိ Balance ကို ပြန်ခေါ်ခြင်း
+    updated_wallet = await db.get_reseller(target_id)
+    new_br = updated_wallet.get('br_balance', 0.0)
+    new_ph = updated_wallet.get('ph_balance', 0.0)
+    
+    # 🟢 Owner ထံသို့ အောင်မြင်ကြောင်း ပြန်လည်အကြောင်းကြားခြင်း
+    await message.reply(
+        f"✅ **Balance Deducted Successfully!**\n\n"
+        f"👤 **User ID:** `{target_id}`\n"
+        f"💸 **Deducted:** `-{amount:,.2f} {currency}`\n\n"
+        f"📊 **Current Balance:**\n"
+        f"🇧🇷 BR: `${new_br:,.2f}`\n"
+        f"🇵🇭 PH: `${new_ph:,.2f}`"
+    )
+    
+    # 🟢 User ထံသို့ ပိုက်ဆံနှုတ်ခံရကြောင်း အလိုအလျောက် သွားရောက်အသိပေးခြင်း
+    try:
+        await bot.send_message(
+            chat_id=int(target_id),
+            text=(
+                f"⚠️ **Balance Deduction Alert!**\n\n"
+                f"Admin has deducted `-{amount:,.2f} {currency}` from your V-Wallet.\n\n"
+                f"Type `.balance` to check your latest balance."
+            )
+        )
+    except Exception as e:
+        print(f"User {target_id} သို့ Noti ပို့၍မရပါ။ (User သည် Bot အား Block ထားခြင်း ဖြစ်နိုင်ပါသည်) - Error: {e}")
+
+
+# ==========================================
+# 💳 SMILE CODE TOP-UP COMMAND (FULLY ASYNC)
 # ==========================================
 @dp.message(F.text.regexp(r"(?i)^\.topup\s+([a-zA-Z0-9]+)"))
 async def handle_topup(message: types.Message):
@@ -810,7 +770,8 @@ async def handle_topup(message: types.Message):
         return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     
     match = re.search(r"(?i)^\.topup\s+([a-zA-Z0-9]+)", message.text.strip())
-    if not match: return await message.reply("Usage format - `.topup <Code>`")
+    if not match: 
+        return await message.reply("Usage format - `.topup <Code>`")
     
     activation_code = match.group(1).strip()
     tg_id = str(message.from_user.id)
@@ -818,25 +779,30 @@ async def handle_topup(message: types.Message):
     
     loading_msg = await message.reply(f"Checking Code `{activation_code}`...")
     
+    # 🟢 Global Lock အစား User တစ်ယောက်ချင်းစီအတွက်သာ Lock ချပါမည် (အခြားသူများ စောင့်ရန်မလိုတော့ပါ)
     async with user_locks[tg_id]:
         scraper = await get_main_scraper()
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         }
         
+        # 🟢 အတွင်းပိုင်း လုပ်ဆောင်ချက်များကိုလည်း Async Function အဖြစ် ကြေညာခြင်း
+        # 🟢 အတွင်းပိုင်း လုပ်ဆောင်ချက်များကိုလည်း Async Function အဖြစ် ကြေညာခြင်း
         async def try_redeem(api_type):
             if api_type == 'PH':
                 page_url = 'https://www.smile.one/ph/customer/activationcode'
                 check_url = 'https://www.smile.one/ph/smilecard/pay/checkcard'
                 pay_url = 'https://www.smile.one/ph/smilecard/pay/payajax'
-                base_origin, base_referer = 'https://www.smile.one', 'https://www.smile.one/ph/'
+                base_origin = 'https://www.smile.one'
+                base_referer = 'https://www.smile.one/ph/'
                 balance_check_url = 'https://www.smile.one/ph/customer/order'
             else:
                 page_url = 'https://www.smile.one/customer/activationcode'
                 check_url = 'https://www.smile.one/smilecard/pay/checkcard'
                 pay_url = 'https://www.smile.one/smilecard/pay/payajax'
-                base_origin, base_referer = 'https://www.smile.one', 'https://www.smile.one/'
+                base_origin = 'https://www.smile.one'
+                base_referer = 'https://www.smile.one/'
                 balance_check_url = 'https://www.smile.one/customer/order'
 
             req_headers = headers.copy()
@@ -850,7 +816,7 @@ async def handle_topup(message: types.Message):
                 csrf_token = soup.find('meta', {'name': 'csrf-token'})
                 csrf_token = csrf_token.get('content') if csrf_token else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
                 
-                # 🟢 CSRF မရှိလျှင် Error မပြတော့ဘဲ "expired" ဟု သတ်မှတ်မည်
+                # 🟢 CSRF မရပါက Error မပြတော့ဘဲ Auto-Login ခေါ်ရန် Expired ဟု သတ်မှတ်မည်
                 if not csrf_token: return "expired", None 
 
                 ajax_headers = req_headers.copy()
@@ -860,7 +826,7 @@ async def handle_topup(message: types.Message):
                 check_res = check_res_raw.json()
                 code_status = str(check_res.get('code', check_res.get('status', '')))
                 
-                # 🟢 API မှ ကတ်တန်ဖိုးကို တိုက်ရိုက်ယူပါမည် (System Delay ကြောင့် ပိုက်ဆံမဝင်တာကို ဖြေရှင်းရန်)
+                # 🟢 API မှ ကတ်တန်ဖိုး (Face Value) ကို တိုက်ရိုက်ဆွဲထုတ်ခြင်း (System Delay ကို ကျော်ဖြတ်ရန်)
                 card_amount = 0.0
                 try:
                     if 'data' in check_res and isinstance(check_res['data'], dict):
@@ -869,6 +835,7 @@ async def handle_topup(message: types.Message):
                 except: pass
 
                 if code_status in ['200', '201', '0', '1'] or 'success' in str(check_res.get('msg', '')).lower():
+                    
                     old_bal = await get_smile_balance(scraper, headers, balance_check_url)
                     
                     pay_res_raw = await asyncio.to_thread(scraper.post, pay_url, data={'_csrf': csrf_token, 'sec': activation_code}, headers=ajax_headers)
@@ -876,51 +843,73 @@ async def handle_topup(message: types.Message):
                     pay_status = str(pay_res.get('code', pay_res.get('status', '')))
                     
                     if pay_status in ['200', '0', '1'] or 'success' in str(pay_res.get('msg', '')).lower():
-                        await asyncio.sleep(4) 
+                        await asyncio.sleep(5) 
+                        
+                        # 🟢 Cache မိနေခြင်းကို ရှောင်ရှားရန် URL နောက်တွင် Timestamp ထည့်ပေးခြင်း
                         anti_cache_url = f"{balance_check_url}?_t={int(time.time())}"
                         new_bal = await get_smile_balance(scraper, headers, anti_cache_url)
                         
                         bal_key = 'br_balance' if api_type == 'BR' else 'ph_balance'
                         added = round(new_bal[bal_key] - old_bal[bal_key], 2)
                         
-                        if added <= 0 and card_amount > 0: added = card_amount
+                        # 🟢 အကယ်၍ Website က Balance ကြန့်ကြာနေပါက API မှရသော ကတ်တန်ဖိုးကို အသုံးပြုမည်
+                        if added <= 0 and card_amount > 0:
+                            added = card_amount
                             
                         return "success", added
-                    else: return "fail", "Payment failed."
-                else: return "invalid", "Invalid Code"
-            except Exception as e: return "error", str(e)
+                    else:
+                        return "fail", "Payment failed."
+                else:
+                    return "invalid", "Invalid Code"
+                    
+            except Exception as e:
+                return "error", str(e)
 
+        # 🟢 Async Function ကို Await ဖြင့် ခေါ်ယူခြင်း
         status, result = await try_redeem('BR')
         active_region = 'BR'
+        
         if status in ['invalid', 'fail']: 
             status, result = await try_redeem('PH')
             active_region = 'PH'
 
         if status == "expired":
             await loading_msg.edit_text("⚠️ <b>Cookies Expired!</b>\n\nAuto-login စတင်နေပါသည်... ခဏစောင့်ပြီး ပြန်လည်ကြိုးစားပါ။", parse_mode=ParseMode.HTML)
-            await notify_owner("⚠️ <b>Top-up Alert:</b> Cookie သက်တမ်းကုန်သွားပါသည်။ Auto-login စတင်နေပါသည်...")
+            await notify_owner("⚠️ <b>Top-up Alert:</b> Code ဖြည့်သွင်းနေစဉ် Cookie သက်တမ်းကုန်သွားပါသည်။ Auto-login စတင်နေပါသည်...")
             success = await auto_login_and_get_cookie()
-            if not success: await notify_owner("❌ <b>Critical:</b> Auto-Login မအောင်မြင်ပါ။ `/setcookie` ဖြင့် အသစ်ထည့်ပေးပါ။")
+            if not success:
+                await notify_owner("❌ <b>Critical:</b> Auto-Login မအောင်မြင်ပါ။ `/setcookie` ဖြင့် အသစ်ထည့်ပေးပါ။")
                 
-        elif status == "error": await loading_msg.edit_text(f"❌ Error: {result}")
-        elif status in ['invalid', 'fail']: await loading_msg.edit_text("Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌\n(Code is invalid or might have been used)")
+        elif status == "error":
+            await loading_msg.edit_text(f"❌ Error: {result}")
+            
+        elif status in ['invalid', 'fail']:
+            await loading_msg.edit_text("Cʜᴇᴄᴋ Fᴀɪʟᴇᴅ❌\n(Code is invalid or might have been used)")
+            
         elif status == "success":
             added_amount = result
+            
             if added_amount <= 0:
                 await loading_msg.edit_text(f"sᴍɪʟᴇ ᴏɴᴇ ʀᴇᴅᴇᴇᴍ ᴄᴏᴅᴇ sᴜᴄᴄᴇss ✅\n(Cannot retrieve exact amount due to System Delay.)")
             else:
                 if user_id_int == OWNER_ID:
-                    fee_percent, fee_amount = 0.0, 0.0
+                    fee_percent = 0.0
+                    fee_amount = 0.0
                     net_added = added_amount
                 else:
-                    if added_amount >= 10000: fee_percent = 0.10
-                    elif added_amount >= 5000: fee_percent = 0.15
-                    elif added_amount >= 1000: fee_percent = 0.20
-                    else: fee_percent = 0.30
+                    if added_amount >= 10000:
+                        fee_percent = 0.10
+                    elif added_amount >= 5000:
+                        fee_percent = 0.15
+                    elif added_amount >= 1000:
+                        fee_percent = 0.20
+                    else:
+                        fee_percent = 0.30
 
                 fee_amount = round(added_amount * (fee_percent / 100), 2)
                 net_added = round(added_amount - fee_amount, 2)
         
+                # 🟢 Database ကို Async ဖြင့် ခေါ်ယူ၍ Update လုပ်ခြင်း
                 user_wallet = await db.get_reseller(tg_id)
                 if active_region == 'BR':
                     assets = user_wallet.get('br_balance', 0.0) if user_wallet else 0.0
@@ -933,13 +922,15 @@ async def handle_topup(message: types.Message):
                 fmt_amount = int(added_amount) if added_amount % 1 == 0 else added_amount
 
                 msg = (
-                    f"✅ <b>Code Top-Up Successful</b>\n\n<code>"
+                    f"✅ <b>Code Top-Up Successful</b>\n\n"
+                    f"<code>"
                     f"Code   : {activation_code} ({active_region})\n"
                     f"Amount : {fmt_amount:,}\n"
                     f"Fee    : -{fee_amount:.1f} ({fee_percent}%)\n"
                     f"Added  : +{net_added:,.1f} 🪙\n"
                     f"Assets : {assets:,.1f} 🪙\n"
-                    f"Total  : {total_assets:,.1f} 🪙</code>"
+                    f"Total  : {total_assets:,.1f} 🪙"
+                    f"</code>"
                 )
                 await loading_msg.edit_text(msg, parse_mode=ParseMode.HTML)
 
@@ -956,6 +947,7 @@ async def check_balance_command(message: types.Message):
     if not user_wallet: 
         return await message.reply("Yᴏᴜʀ ᴀᴄᴄᴏᴜɴᴛ ɪɴғᴏʀᴍᴀᴛɪᴏɴ ᴄᴀɴɴᴏᴛ ʙᴇ ғᴏᴜɴᴅ.")
     
+    # 🟢 Aiogram အတွက် မှန်ကန်သော Custom Emoji Tag များကို သုံးထားပါသည် (tg-emoji)
     ICON_EMOJI = "5956330306167376831" 
     BR_EMOJI = "5228878788867142213"   
     PH_EMOJI = "5231361434583049965"   
@@ -978,14 +970,20 @@ async def check_balance_command(message: types.Message):
                 f"<tg-emoji emoji-id='{BR_EMOJI}'>🇧🇷</tg-emoji> 𝗕𝗥 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${balances.get('br_balance', 0.00):,.2f}\n"
                 f"<tg-emoji emoji-id='{PH_EMOJI}'>🇵🇭</tg-emoji> 𝗣𝗛 𝗕𝗔𝗟𝗔𝗡𝗖𝗘 : ${balances.get('ph_balance', 0.00):,.2f}</blockquote>"
             )
+            
             await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
         except Exception as e:
             print(f"Balance Scrape Error: {e}")
-            try: await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
-            except: pass
+            # Scraping Error တက်ခဲ့ရင်တောင် V-Wallet (DB) Balance ကိုတော့ ပြပေးမည်
+            try:
+                await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
+            except:
+                pass
     else:
-        try: await message.reply(report, parse_mode=ParseMode.HTML)
-        except: pass
+        try:
+            await message.reply(report, parse_mode=ParseMode.HTML)
+        except:
+            pass
 
 @dp.message(or_f(Command("history"), F.text.regexp(r"(?i)^\.his$")))
 async def send_order_history(message: types.Message):
@@ -1002,6 +1000,7 @@ async def send_order_history(message: types.Message):
                           f"🆔 Order ID: {order['order_id']}\n📅 Date: {order['date_str']}\n💲 Rate: ${order['price']:,.2f}\n"
                           f"📊 Status: {order['status']}\n────────────────\n")
     
+    # Send document in Aiogram 3
     file_bytes = response_text.encode('utf-8')
     document = BufferedInputFile(file_bytes, filename=f"History_{tg_id}.txt")
     await message.answer_document(document=document, caption=f"📜 **Order History**\n👤 User: @{user_name}\n📊 Records: {len(history_data)}")
@@ -1011,13 +1010,165 @@ async def clean_order_history(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     tg_id = str(message.from_user.id)
     deleted_count = await db.clear_user_history(tg_id)
-    if deleted_count > 0: await message.reply(f"🗑️ **History Cleaned Successfully.**\nDeleted {deleted_count} order records.")
+    if deleted_count > 0: await message.reply(f"🗑️ **History Cleaned Successfully.**\nDeleted {deleted_count} order records from your history.")
     else: await message.reply("📜 **No Order History Found to Clean.**")
+
+# ==========================================
+# 🛑 CORE ORDER EXECUTION HELPER [UPDATED FOR PRODUCT NAME]
+# ==========================================
+async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
+    tg_id = str(message.from_user.id)
+    telegram_user = message.from_user.username
+    username_display = f"@{telegram_user}" if telegram_user else tg_id
+    v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
+    
+    async with user_locks[tg_id]: 
+        for line in lines:
+            line = line.strip()
+            if not line: continue 
+            
+            match = re.search(regex_pattern, line)
+            if not match:
+                await message.reply(f"Invalid format: `{line}`\nCheck /help for correct format.")
+                continue
+                
+            game_id = match.group(1)
+            zone_id = match.group(2)
+            item_input = match.group(3).lower() 
+            
+            active_packages = None
+            if isinstance(packages_dict, list):
+                for p_dict in packages_dict:
+                    if item_input in p_dict:
+                        active_packages = p_dict
+                        break
+            else:
+                if item_input in packages_dict:
+                    active_packages = packages_dict
+                    
+            if not active_packages:
+                await message.reply(f"❌ No Package found for '{item_input}'.")
+                continue
+                
+            items_to_buy = active_packages[item_input]
+            total_required_price = sum(item['price'] for item in items_to_buy)
+            
+            user_wallet = await db.get_reseller(tg_id)
+            user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
+            
+            if user_v_bal < total_required_price:
+                await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nNᴇᴇᴅ ʙᴀʟᴀɴᴄᴇ ᴀᴍᴏᴜɴᴛ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
+                continue
+            
+            loading_msg = await message.reply(f"⏱ Order လက်ခံရရှိပါသည်... ခဏစောင့်ပေးပါ ᥫ᭡")
+            
+            success_count, fail_count, total_spent = 0, 0, 0.0
+            order_ids_str, ig_name, error_msg = "", "Unknown", ""
+            
+            prev_context = None 
+            actual_names_list = [] # 🟢 Official Product Names များကို စုဆောင်းရန် Array
+            
+            async with api_semaphore:
+                await loading_msg.edit_text(f"Recharging Diam͟o͟n͟d͟ ● ᥫ᭡")
+                for item in items_to_buy:
+                    
+                    if is_mcc:
+                        result = await process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context)
+                    else:
+                        result = await process_func(game_id, zone_id, item['pid'], currency, prev_context=prev_context)
+                    
+                    if result['status'] == 'success':
+                        prev_context = {'csrf_token': result['csrf_token']}
+                        ig_name = result['ig_name'] 
+                        
+                        # 🟢 JSON မှရသော အမည်အမှန် သို့မဟုတ် Dictionary ထဲမှ အမည်ကို ယူမည်
+                        fetched_name = result.get('product_name', '').strip()
+                        if not fetched_name:
+                            fetched_name = item.get('name', item_input)
+                        actual_names_list.append(fetched_name)
+
+                        success_count += 1
+                        total_spent += item['price']
+                        order_ids_str += f"{result['order_id']}\n" 
+                        await asyncio.sleep(0.5)
+                    else:
+                        fail_count += 1
+                        error_msg = result['message']
+                        break 
+            
+            if success_count > 0:
+                now = datetime.datetime.now(MMT)
+                date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
+                
+                if currency == 'BR': await db.update_balance(tg_id, br_amount=-total_spent)
+                else: await db.update_balance(tg_id, ph_amount=-total_spent)
+                
+                new_wallet = await db.get_reseller(tg_id)
+                new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
+                final_order_ids = order_ids_str.strip().replace('\n', ', ')
+                
+                # 🟢 တူညီသော Item များဆိုလျှင် (x2), (x3) စသဖြင့် ပြပေးရန်
+                unique_names = list(set(actual_names_list))
+                if len(unique_names) == 1:
+                    final_item_name = f"{unique_names[0]} (x{success_count})" if success_count > 1 else unique_names[0]
+                else:
+                    final_item_name = ", ".join(actual_names_list)
+
+                await db.save_order(
+                    tg_id=tg_id, game_id=game_id, zone_id=zone_id, item_name=final_item_name,
+                    price=total_spent, order_id=final_order_ids, status="success"
+                )
+             
+                safe_ig_name = html.escape(str(ig_name))
+                safe_username = html.escape(str(username_display))
+                safe_item_name = html.escape(str(final_item_name)) # 🟢 HTML Safe ပြုလုပ်ခြင်း
+                
+                report = (
+                    f"<blockquote><code>**{title_prefix} {game_id} ({zone_id}) {item_input} ({currency})**\n"
+                    f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
+                    f"ᴏʀᴅᴇʀ sᴛᴀᴛᴜs : ✅ Sᴜᴄᴄᴇss\n"
+                    f"ɢᴀᴍᴇ ɪᴅ      : {game_id} {zone_id}\n"
+                    f"ɪɢ ɴᴀᴍᴇ      : {safe_ig_name}\n"
+                    f"sᴇʀɪᴀʟ        :\n{order_ids_str.strip()}\n"
+                    f"ɪᴛᴇᴍ         : {safe_item_name}\n" # 🟢 နာမည်အမှန် ထည့်သွင်းပြသခြင်း
+                    f"sᴘᴇɴᴛ        : {total_spent:.2f} 🪙\n\n"
+                    f"ᴅᴀᴛᴇ         : {date_str}\n"
+                    f"ᴜsᴇʀɴᴀᴍᴇ      : {safe_username}\n"
+                    f"ɪɴɪᴛɪᴀʟ      : ${user_v_bal:,.2f}\n"
+                    f"ғɪɴᴀʟ        : ${new_v_bal:,.2f}\n\n"
+                    f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>"
+                )
+                await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
+                
+                # 🟢 (၂) ပုံထဲကအတိုင်း JSON Report ကို သီးသန့်ဖန်တီးခြင်း
+                json_date_str = now.strftime("%Y-%m-%d %H:%M:%S")
+                json_report = f"""{{
+  "code": 200,
+  "list": [
+    {{
+      "increment_id": "{final_order_ids}",
+      "user_id": "{game_id}",
+      "server_id": "{zone_id}",
+      "product_name": "{safe_item_name}",
+      "price": "{total_spent:.2f}",
+      "order_status": "success",
+      "created_at": "{json_date_str}"
+    }}
+  ]
+}}"""
+                
+                # 🟢 (၃) JSON Message ကို သီးသန့် နောက်ထပ်တစ်ခု ထပ်ပို့ပေးခြင်း
+                await message.reply(f"<code>{json_report}</code>", parse_mode=ParseMode.HTML)
+                
+                if fail_count > 0: await message.reply(f"Only partially successful.\nError: {error_msg}")
+            else:
+                await loading_msg.edit_text(f"❌ Order failed:\n{error_msg}")
 
 # ==========================================
 # 💎 PURCHASE COMMAND HANDLERS
 # ==========================================
 
+# 🟢 တစ်ကြောင်းတည်းမှာ Item တွေ အများကြီးရေးခဲ့ရင် သီးသန့်စီ ခွဲထုတ်ပေးမယ့် Helper Function
 def parse_multiple_items(lines):
     expanded_lines = []
     regex = r"(?i)^(?:(?:msc|mlb|br|b|mlp|ph|p|mcc|mcb|mcp)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+(.+)"
@@ -1027,19 +1178,27 @@ def parse_multiple_items(lines):
             game_id = match.group(1)
             zone_id = match.group(2)
             items_str = match.group(3)
+            # Space ခြားထားတဲ့ Item တစ်ခုချင်းစီကို ယူပြီး သီးသန့် Line တွေအဖြစ် ပြောင်းပါမယ်
             for item in items_str.split():
                 expanded_lines.append(f"{game_id} ({zone_id}) {item}")
         else:
             expanded_lines.append(line)
     return expanded_lines
 
+
 @dp.message(F.text.regexp(r"(?i)^(?:msc|mlb|br|b)\s+\d+"))
 async def handle_br_mlbb(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply(f"ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.❌")
     try:
         raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
+        
+        # 🟢 Item တွေကို အရင်ဆုံး ခွဲထုတ်ပါမယ်
         lines = parse_multiple_items(raw_lines)
-        if len(lines) > 5: return await message.reply("❌ **5 Limit Exceeded:** တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
+
+        # 🟢 ၅ ခုထက်ကျော်ရင် ငြင်းမယ် (စုစုပေါင်း ဝယ်မယ့် Item အရေအတွက်ကို စစ်တာပါ)
+        if len(lines) > 5:
+            return await message.reply("❌ **5 Limit Exceeded:** တစ်ကြိမ်လျှင် အများဆုံး ၅ ခုသာ ဝယ်ယူနိုင်ပါသည်။")
+
         regex = r"(?i)^(?:(?:msc|mlb|br|b)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'BR', [DOUBLE_DIAMOND_PACKAGES, BR_PACKAGES], process_smile_one_order, "MLBB")
     except Exception as e: await message.reply(f"System Error: {str(e)}")
@@ -1050,7 +1209,10 @@ async def handle_ph_mlbb(message: types.Message):
     try:
         raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
         lines = parse_multiple_items(raw_lines)
-        if len(lines) > 5: return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
+        if len(lines) > 5:
+            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
         regex = r"(?i)^(?:(?:mlp|ph|p)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'PH', PH_PACKAGES, process_smile_one_order, "MLBB")
     except Exception as e: await message.reply(f"System Error: {str(e)}")
@@ -1061,7 +1223,10 @@ async def handle_br_mcc(message: types.Message):
     try:
         raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
         lines = parse_multiple_items(raw_lines)
-        if len(lines) > 5: return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
+        if len(lines) > 5:
+            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
         regex = r"(?i)^(?:(?:mcc|mcb)\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'BR', MCC_PACKAGES, process_mcc_order, "MCC", is_mcc=True)
     except Exception as e: await message.reply(f"System Error: {str(e)}")
@@ -1072,7 +1237,10 @@ async def handle_ph_mcc(message: types.Message):
     try:
         raw_lines = [line.strip() for line in message.text.strip().split('\n') if line.strip()]
         lines = parse_multiple_items(raw_lines)
-        if len(lines) > 5: return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
+        if len(lines) > 5:
+            return await message.reply("5 Lɪᴍɪᴛ Exᴄᴇᴇᴅᴇᴅ.❌")
+
         regex = r"(?i)^(?:mcp\s+)?(\d+)\s*(?:[\(]?\s*(\d+)\s*[\)]?)\s+([a-zA-Z0-9_]+)"
         await execute_buy_process(message, lines, regex, 'PH', PH_MCC_PACKAGES, process_mcc_order, "MCC", is_mcc=True)
     except Exception as e: await message.reply(f"System Error: {str(e)}")
@@ -1124,6 +1292,7 @@ async def auto_calculator(message: types.Message):
 # 10. 💓 HEARTBEAT FUNCTION
 # ==========================================
 async def keep_cookie_alive():
+    """ Reactive Renewal: (၂) မိနစ်တစ်ခါ စစ်မည်။ """
     while True:
         try:
             await asyncio.sleep(2 * 60) 
@@ -1134,15 +1303,23 @@ async def keep_cookie_alive():
                 pass 
             else:
                 print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] ⚠️ Main Cookie expired unexpectedly.")
+                
+                # 🟢 အသစ်ရေးထားသော Function ဖြင့် Owner ဆီ စာပို့မည်
                 await notify_owner("⚠️ <b>System Warning:</b> Cookie သက်တမ်းကုန်သွားသည်ကို တွေ့ရှိရပါသည်။ Auto-Login စတင်နေပါသည်...")
+
                 success = await auto_login_and_get_cookie()
+                
                 if not success:
                     await notify_owner("❌ <b>Critical:</b> Auto-Login မအောင်မြင်ပါ။ သင့်အနေဖြင့် `/setcookie` ဖြင့် Cookie အသစ် လာရောက်ထည့်သွင်းပေးရန် လိုအပ်ပါသည်။")
         except Exception: pass
 
+
 async def schedule_daily_cookie_renewal():
+    """ Proactive Renewal: နေ့စဉ် မနက် ၆:၃၀ (MMT) တွင် Cookie အသစ်ကို ကြိုတင်ရယူထားမည်။ """
     while True:
         now = datetime.datetime.now(MMT)
+        
+        # 🟢 ယနေ့ မနက် ၆:၃၀ အချိန်ကို သတ်မှတ်ခြင်း
         target_time = now.replace(hour=6, minute=30, second=0, microsecond=0)
         
         if now >= target_time:
@@ -1151,6 +1328,7 @@ async def schedule_daily_cookie_renewal():
         wait_seconds = (target_time - now).total_seconds()
         print(f"⏰ Proactive Cookie Renewal is scheduled in {wait_seconds / 3600:.2f} hours (at {target_time.strftime('%I:%M %p')} MMT).")
         
+        # 🟢 အချိန်ပြည့်သည်အထိ စောင့်နေမည်
         await asyncio.sleep(wait_seconds)
         
         print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 🚀 Executing Proactive Cookie Renewal...")
@@ -1165,6 +1343,19 @@ async def schedule_daily_cookie_renewal():
         else:
             try: await bot.send_message(OWNER_ID, "❌ <b>System:</b> Proactive cookie renewal failed!", parse_mode=ParseMode.HTML)
             except Exception: pass
+
+
+async def notify_owner(text: str):
+    try:
+        # လိုအပ်ပါက Message ကို ပိုမိုလုံခြုံစေရန် - 
+        # text = html.escape(text) (မိမိကိုယ်တိုင် HTML tags မသုံးထားသော နေရာများတွင်သာ သုံးရန်)
+        await bot.send_message(
+            chat_id=OWNER_ID,
+            text=text,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        print(f" Owner ထံသို့ Message ပို့၍မရပါ: {e}")
 
 # ==========================================
 # 🍪 CHECK COOKIE STATUS COMMAND
@@ -1193,6 +1384,7 @@ async def check_cookie_status(message: types.Message):
             
     except Exception as e:
         await loading_msg.edit_text(f"❌ Error checking cookie: {str(e)}")
+
 
 @dp.message(or_f(Command("role"), F.text.regexp(r"(?i)^\.role(?:$|\s+)")))
 async def handle_check_role(message: types.Message):
@@ -1276,9 +1468,12 @@ async def handle_check_role(message: types.Message):
     except Exception as e:
         await loading_msg.edit_text(f"❌ System Error: {str(e)}")
 
+
 # ==========================================
 # 🔍 1. DISPUTE & VERIFICATION COMMAND (GAME ID + ORDER ID SEARCH)
 # ==========================================
+import datetime 
+
 @dp.message(or_f(Command("checkcus"), Command("cus"), F.text.regexp(r"(?i)^\.(?:checkcus|cus)(?:$|\s+)")))
 async def check_official_customer(message: types.Message):
     tg_id = str(message.from_user.id)
@@ -1293,6 +1488,7 @@ async def check_official_customer(message: types.Message):
     if len(parts) < 2:
         return await message.reply("⚠️ <b>Usage:</b> <code>.cus <Game_ID></code> သို့မဟုတ် <code>.cus <Order_ID></code>", parse_mode=ParseMode.HTML)
         
+    # 🟢 Game ID ဖြစ်စေ၊ Order ID ဖြစ်စေ လက်ခံမည်
     search_query = parts[1]
     loading_msg = await message.reply(f"Deep Searching Official Records for: <code>{search_query}</code>...", parse_mode=ParseMode.HTML)
     
@@ -1323,6 +1519,7 @@ async def check_official_customer(message: types.Message):
                             order_id = str(order.get('increment_id') or order.get('id') or '')
                             status_val = str(order.get('order_status', '') or order.get('status', '')).lower()
                             
+                            # 🟢 ရှာဖွေသည့်စာသားသည် Game ID နှင့်ဖြစ်စေ၊ Order ID နှင့်ဖြစ်စေ ကိုက်ညီမှုရှိမရှိ နှစ်မျိုးလုံး စစ်ဆေးမည်
                             if (current_user_id == search_query or order_id == search_query) and status_val in ['success', '1']:
                                 if order_id not in seen_ids:
                                     seen_ids.add(order_id)
@@ -1348,6 +1545,7 @@ async def check_official_customer(message: types.Message):
             if date_str:
                 try:
                     dt_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+                    
                     if currency_sym == 'BRL':
                         mmt_dt = dt_obj + datetime.timedelta(hours=9, minutes=30)
                     elif currency_sym == 'PHP':
@@ -1403,6 +1601,7 @@ async def check_official_customer(message: types.Message):
         
     except Exception as e:
         await loading_msg.edit_text(f"❌ Search Error: {str(e)}", parse_mode=ParseMode.HTML)
+        
 
 # ==========================================
 # 👑 2. VIP & TOP CUSTOMER COMMANDS
@@ -1420,6 +1619,7 @@ async def show_top_customers(message: types.Message):
         spent = user['total_spent']
         count = user['order_count']
         
+        # Database ထဲမှာ VIP ဟုတ်မဟုတ် ပြန်စစ်မည်
         user_info = await db.get_reseller(tg_id)
         vip_tag = "🌟 [VIP]" if user_info and user_info.get('is_vip') else ""
         
@@ -1439,18 +1639,21 @@ async def grant_vip_status(message: types.Message):
     if not user: return await message.reply("❌ User not found.")
     
     current_status = user.get('is_vip', False)
-    new_status = not current_status 
+    new_status = not current_status # ရှိရင် ဖြုတ်မည်၊ မရှိရင် ပေးမည် (Toggle)
     
     await db.set_vip_status(target_id, new_status)
     status_msg = "Granted 🌟" if new_status else "Revoked ❌"
     await message.reply(f"✅ VIP Status for `{target_id}` has been **{status_msg}**.")
 
+
 # ==========================================
 # 📊 3. AUTO-RECONCILIATION TASK
 # ==========================================
 async def daily_reconciliation_task():
+    """ညစဉ် ၁၁:၅၀ မိနစ်တိုင်းတွင် Bot ၏ စာရင်းနှင့် Official စာရင်းကိုက်ညီမှု စစ်ဆေးမည်"""
     while True:
         now = datetime.datetime.now(MMT)
+        # ည ၁၁:၅၀ တွင် Run မည်
         target_time = now.replace(hour=23, minute=50, second=0, microsecond=0)
         if now >= target_time:
             target_time += datetime.timedelta(days=1)
@@ -1461,10 +1664,13 @@ async def daily_reconciliation_task():
         print(f"[{datetime.datetime.now(MMT).strftime('%I:%M %p')}] 🔄 Running Daily Reconciliation...")
         
         try:
+            # 1. Bot ၏ Database မှ ယနေ့ Order အနှစ်ချုပ်ကို ယူမည်
             db_summary = await db.get_today_orders_summary()
             db_total_spent = db_summary['total_spent']
             db_order_count = db_summary['total_orders']
             
+            # 2. Official Smile.one မှ ယူရန် (Scrape or use /customer/order history)
+            # အကယ်၍ Official က Scrape လုပ်၍မရပါက Local စာရင်းကိုသာ Report ပို့မည်
             scraper = await get_main_scraper()
             headers = {'X-Requested-With': 'XMLHttpRequest', 'Origin': 'https://www.smile.one'}
             balances = await get_smile_balance(scraper, headers)
@@ -1484,6 +1690,7 @@ async def daily_reconciliation_task():
             
         except Exception as e:
             print(f"Reconciliation Error: {e}")
+
 
 # ==========================================
 # 📋 AUTO FORMAT & COPY BUTTON (SMART WP FIX)
@@ -1506,6 +1713,7 @@ async def format_and_copy_text(message: types.Message):
             suffix = match.group(3).strip()
             
             if suffix:
+                # wp စစ်တာ အရင်အတိုင်းပဲ
                 clean_suffix = suffix.lower().replace(" ", "")
                 wp_match = re.match(r"^(\d*)wp(\d*)$", clean_suffix)
                 
@@ -1573,6 +1781,8 @@ async def format_and_copy_text(message: types.Message):
     
     await message.reply(formatted_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
+##############################################
+
 # ==========================================
 # ℹ️ HELP & START COMMANDS
 # ==========================================
@@ -1601,6 +1811,7 @@ async def send_help_message(message: types.Message):
         f"💡 <i>Tip: 50+50 ဟုရိုက်ထည့်၍ ဂဏန်းပေါင်းစက်အဖြစ် သုံးနိုင်ပါသည်။</i>\n"
     )
     
+    # 🟢 Owner အတွက်သာ ပေါ်မည့် သီးသန့် Command များ
     if is_owner:
         help_text += (
             f"\n━━━━━━━━━━━━━━━━━\n"
@@ -1672,6 +1883,7 @@ async def send_welcome(message: types.Message):
         )
         await message.reply(fallback_text, parse_mode=ParseMode.HTML)
 
+
 # ==========================================
 # 10. MAIN RUN EXECUTION
 # ==========================================
@@ -1679,19 +1891,24 @@ async def main():
     print("Starting Heartbeat & Auto-login tasks...")
     print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်.....")
     
+    # 🟢 Concurrency အတွက် Thread Pool Limit ကို main() ထဲတွင်သာ သတ်မှတ်ပါ
     loop = asyncio.get_running_loop()
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=50))
     
+    # Background Tasks များကို Event Loop ပေါ်တင်ပေးခြင်း
     asyncio.create_task(keep_cookie_alive())
     asyncio.create_task(schedule_daily_cookie_renewal())
     asyncio.create_task(daily_reconciliation_task())
     
+    # Database Initialization
     await db.setup_indexes()
     await db.init_owner(OWNER_ID)
 
     print("Bot is successfully running on Aiogram 3 Framework... 🎉")
     
+    # Aiogram Polling စတင်ခြင်း
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
+    
     asyncio.run(main())

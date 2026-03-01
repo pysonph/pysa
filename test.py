@@ -378,15 +378,20 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
         
         is_success = False
         # 🟢 Flow ID ကို သုံး၍ အမြန် Order ID ဖန်တီးခြင်း
+        # 🟢 Flow ID ကို သုံး၍ အမြန် Order ID ဖန်တီးခြင်း
         real_order_id = f"FAST-{flowid}" 
 
         try:
             pay_json = pay_response_raw.json()
-            code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
-            if code in ['200', '0', '1'] or 'success' in msg: 
+            # 🟢 API က ပြန်ပို့ပေးတဲ့ Data Format (code, status, msg, message) အားလုံးကို ဖမ်းယူစစ်ဆေးမည်
+            code = str(pay_json.get('code', pay_json.get('status', '')))
+            msg = str(pay_json.get('msg', pay_json.get('message', ''))).lower()
+            
+            if code in ['200', '201', '0', '1'] or 'success' in msg or 'sucesso' in msg: 
                 is_success = True
             else: 
-                return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
+                err_text = pay_json.get('msg', pay_json.get('message', 'Payment failed.'))
+                return {"status": "error", "message": f"{err_text} (Code: {code})"}
         except:
             if 'success' in pay_text or 'sucesso' in pay_text: 
                 is_success = True
@@ -491,21 +496,32 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
         
         is_success = False
         # 🟢 Flow ID ကို သုံး၍ အမြန် Order ID ဖန်တီးခြင်း
-        real_order_id = f"FAST-{flowid}"
+        # 🟢 Flow ID ကို သုံး၍ အမြန် Order ID ဖန်တီးခြင်း
+        real_order_id = f"FAST-{flowid}" 
 
         try:
             pay_json = pay_response_raw.json()
-            code, msg = str(pay_json.get('code', '')), str(pay_json.get('msg', '')).lower()
-            if code in ['200', '0', '1'] or 'success' in msg: 
+            # 🟢 API က ပြန်ပို့ပေးတဲ့ Data Format (code, status, msg, message) အားလုံးကို ဖမ်းယူစစ်ဆေးမည်
+            code = str(pay_json.get('code', pay_json.get('status', '')))
+            msg = str(pay_json.get('msg', pay_json.get('message', ''))).lower()
+            
+            if code in ['200', '201', '0', '1'] or 'success' in msg or 'sucesso' in msg: 
                 is_success = True
             else: 
-                return {"status": "error", "message": pay_json.get('msg', 'Payment failed.')}
+                err_text = pay_json.get('msg', pay_json.get('message', 'Payment failed.'))
+                return {"status": "error", "message": f"{err_text} (Code: {code})"}
         except:
             if 'success' in pay_text or 'sucesso' in pay_text: 
                 is_success = True
 
         if is_success:
-            return {"status": "success", "ig_name": ig_name, "order_id": real_order_id, "csrf_token": csrf_token, "product_name": ""}
+            return {
+                "status": "success", 
+                "ig_name": ig_name, 
+                "order_id": real_order_id, 
+                "csrf_token": csrf_token, 
+                "product_name": "" 
+            }
         else:
             return {"status": "error", "message": "Payment Verification Failed."}
 
@@ -1160,6 +1176,27 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                     f"Sᴜᴄᴄᴇss {success_count} / Fᴀɪʟ {fail_count}</code></blockquote>"
                 )
                 await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
+                
+                # 🟢 (၂) ပုံထဲကအတိုင်း JSON Report ကို သီးသန့်ဖန်တီးခြင်း
+                json_date_str = now.strftime("%Y-%m-%d %H:%M:%S")
+                json_report = f"""{{
+  "code": 200,
+  "list": [
+    {{
+      "increment_id": "{final_order_ids}",
+      "user_id": "{game_id}",
+      "server_id": "{zone_id}",
+      "product_name": "{safe_item_name}",
+      "price": "{total_spent:.2f}",
+      "order_status": "success",
+      "created_at": "{json_date_str}"
+    }}
+  ]
+}}"""
+                
+                # 🟢 (၃) JSON Message ကို သီးသန့် နောက်ထပ်တစ်ခု ထပ်ပို့ပေးခြင်း
+                await message.reply(f"<code>{json_report}</code>", parse_mode=ParseMode.HTML)
+                
                 if fail_count > 0: await message.reply(f"Only partially successful.\nError: {error_msg}")
             else:
                 await loading_msg.edit_text(f"❌ Order failed:\n{error_msg}")

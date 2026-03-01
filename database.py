@@ -192,3 +192,24 @@ async def get_today_orders_summary():
     cursor = orders_col.aggregate(pipeline)
     result = await cursor.to_list(length=1)
     return result[0] if result else {"total_spent": 0.0, "total_orders": 0}
+
+
+
+async def get_total_system_balances():
+    """စနစ်ထဲရှိ User အားလုံး၏ V-Wallet Balance စုစုပေါင်းကို တွက်ချက်မည်"""
+    pipeline = [
+        {"$group": {
+            "_id": None,
+            "total_br": {"$sum": "$br_balance"},
+            "total_ph": {"$sum": "$ph_balance"}
+        }}
+    ]
+    cursor = resellers_col.aggregate(pipeline)
+    result = await cursor.to_list(length=1)
+    
+    if result:
+        return {
+            "total_br": round(result[0].get("total_br", 0.0), 2),
+            "total_ph": round(result[0].get("total_ph", 0.0), 2)
+        }
+    return {"total_br": 0.0, "total_ph": 0.0}

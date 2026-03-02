@@ -20,6 +20,7 @@ from curl_cffi.requests import AsyncSession
 
 # 🟢 Aiogram 3 Imports
 from aiogram import Bot, Dispatcher, F, types
+from aiogram import BaseMiddleware
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -50,9 +51,10 @@ dp = Dispatcher()
 # 🚀 ADVANCED CONCURRENCY & LOCK SYSTEM
 # ==========================================
 user_locks = defaultdict(asyncio.Lock)
-api_semaphore = asyncio.Semaphore(20) 
+api_semaphore = asyncio.Semaphore(3) 
 auth_lock = asyncio.Lock()  
-last_login_time = 0         
+last_login_time = 0
+GLOBAL_SCAMMERS = set()     
 
 # 🟢 Global Scraper Storage & CSRF CACHE (စက္ကန့်ပိုင်းအတွင်း ပြီးစေရန်)
 GLOBAL_SCRAPER = None
@@ -941,7 +943,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             return
             
         start_time = time.time()
-        loading_msg = await message.reply(f"Order processing({len(parsed_orders)}) ᥫ᭡")
+        loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} ] ● ᥫ᭡")
 
         async def process_order_line(order):
             game_id = order['game_id']
@@ -1023,7 +1025,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 safe_item_name = html.escape(str(final_item_name)) 
                 
                 report = (
-                    f"<blockquote><code>**{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})**\n"
+                    f"<blockquote><code>{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})\n"
                     f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\nᴏʀᴅᴇʀ sᴛᴀᴛᴜs : ✅ Sᴜᴄᴄᴇss\nɢᴀᴍᴇ ɪᴅ      : {res['game_id']} {res['zone_id']}\n"
                     f"ɪɢ ɴᴀᴍᴇ      : {safe_ig_name}\nsᴇʀɪᴀʟ        :\n{res['order_ids_str'].strip()}\nɪᴛᴇᴍ         : {safe_item_name}\n"
                     f"sᴘᴇɴᴛ        : {res['total_spent']:.2f} 🪙\n\nᴅᴀᴛᴇ         : {date_str}\nᴜsᴇʀɴᴀᴍᴇ      : {safe_username}\n"
@@ -1375,23 +1377,21 @@ async def check_official_customer(message: types.Message):
             return await loading_msg.edit_text(f"❌ No successful records found for: <code>{search_query}</code>", parse_mode=ParseMode.HTML)
             
         found_orders = found_orders[:1] 
-        report = f"🔍 <b>Official Records for {search_query}</b>\n\n"
+        report = f"🎉<b>Oғғɪᴄɪᴀʟ Rᴇᴄᴏʀᴅs ғᴏʀ {search_query}</b>\n\n"
         
         for order in found_orders:
             serial_id = str(order.get('increment_id') or order.get('id') or 'Unknown Serial')
             date_str = str(order.get('created_at') or order.get('updated_at') or order.get('create_time') or '')
             currency_sym = str(order.get('total_fee_currency') or '$')
             
+            # 🟢 [အသစ်ပြင်ဆင်ထားသော အချိန်တွက်ချက်မှု] 
+            # Smile.one API သည် နိုင်ငံမရွေး Brazil (GMT-3) ဖြင့်သာ ပုံသေသိမ်းပါသည်။
+            # ထို့ကြောင့် မြန်မာစံတော်ချိန် (MMT: GMT+6:30) သို့ ပြောင်းရန် (9 နာရီခွဲ) တိတိ ပေါင်းရပါမည်။
             date_display = date_str
             if date_str:
                 try:
                     dt_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
-                    if currency_sym == 'BRL':
-                        mmt_dt = dt_obj + datetime.timedelta(hours=9, minutes=30)
-                    elif currency_sym == 'PHP':
-                        mmt_dt = dt_obj - datetime.timedelta(hours=1, minutes=30)
-                    else:
-                        mmt_dt = dt_obj + datetime.timedelta(hours=9, minutes=30)
+                    mmt_dt = dt_obj + datetime.timedelta(hours=9, minutes=30)
                     mm_time_str = mmt_dt.strftime("%I:%M:%S %p") 
                     date_display = f"{date_str} ( MM - {mm_time_str} )"
                 except Exception:
@@ -1422,11 +1422,18 @@ async def check_official_customer(message: types.Message):
                 raw_item_name = raw_item_name[:-2]
                 
             raw_item_name = raw_item_name.strip()
-            if currency_sym == 'PHP': final_item_name = f"Mobile Legends PH - {raw_item_name}"
-            else: final_item_name = f"Mobile Legends BR - {raw_item_name}"
+            
+            if currency_sym == 'PHP':
+                final_item_name = f"Mobile Legends PH - {raw_item_name}"
+            else:
+                final_item_name = f"Mobile Legends BR - {raw_item_name}"
             
             price = str(order.get('price') or order.get('grand_total') or order.get('real_money') or '0.00')
-            price_display = f"{price} {currency_sym}" if currency_sym != '$' else f"${price}"
+            if currency_sym != '$':
+                price_display = f"{price} {currency_sym}"
+            else:
+                price_display = f"${price}"
+                
             report += f"🏷 <code>{serial_id}</code>\n📅 <code>{date_display}</code>\n💎 {final_item_name} ({price_display})\n📊 Status: ✅ Success\n\n"
             
         await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
@@ -1535,6 +1542,83 @@ async def format_and_copy_text(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[copy_btn]])
     await message.reply(formatted_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
+
+# ==========================================
+# 🚨 1. SCAMMER ALERT MIDDLEWARE (INTERCEPTOR)
+# ==========================================
+class ScamAlertMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: types.Message, data: dict):
+        if event.text:
+            # ဝင်လာတဲ့ စာသားတိုင်းမှာ Scammer ID ပါမပါ စက္ကန့်ပိုင်းအတွင်း စစ်ဆေးမည်
+            for scam_id in GLOBAL_SCAMMERS:
+                # Regex သုံး၍ ဂဏန်းအတိအကျတူမှသာ ဖမ်းမည်
+                pattern = rf"\b{scam_id}\b"
+                if re.search(pattern, event.text):
+                    await event.reply(
+                        f"🚨 <b>SCAMMER ALERT</b> 🚨\n\n"
+                        f"⚠️ <b>သတိပြုပါ!</b> ဤ Game ID: <code>{scam_id}</code> သည် လိမ်လည်သူ (Scammer) အဖြစ် စာရင်းသွင်းထားသော ID ဖြစ်ပါသည်။\n"
+                        f"❌ <b>Bot မှ မည်သည့် ဝယ်ယူမှုလုပ်ဆောင်ချက်ကိုမှ လက်ခံမည်မဟုတ်ပါ။</b>",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return # Scammer ID တွေ့ပါက ဤနေရာတွင် ရပ်မည် (Top-up ဆက်မလုပ်တော့ပါ)
+        
+        # Scammer မဟုတ်ပါက ပုံမှန်အတိုင်း ဆက်လုပ်မည်
+        return await handler(event, data)
+
+# ==========================================
+# 🚨 2. SCAMMER MANAGEMENT COMMANDS (OWNER ONLY)
+# ==========================================
+@dp.message(or_f(Command("scam"), F.text.regexp(r"(?i)^\.scam(?:$|\s+)")))
+async def add_scam_id(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.reply("❌ Only Owner can use this command.")
+        
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        return await message.reply("⚠️ **Usage:** `.scam <Game_ID>`\nဥပမာ: `.scam 123456789`")
+        
+    scam_id = parts[1].strip()
+    if not scam_id.isdigit():
+        return await message.reply("❌ Invalid Game ID. ဂဏန်းများသာ ရိုက်ထည့်ပါ။")
+        
+    # Database နှင့် Memory ထဲသို့ ထည့်သွင်းမည်
+    await db.add_scammer(scam_id)
+    GLOBAL_SCAMMERS.add(scam_id)
+    
+    await message.reply(f"🚨 **Scammer ID Added:** <code>{scam_id}</code>\n✅ ဤ ID ကို Blacklist သို့ ထည့်သွင်းပြီးပါပြီ။ တွေ့တာနဲ့ Bot မှ အလိုအလျောက် သတိပေးပါတော့မည်။", parse_mode=ParseMode.HTML)
+
+@dp.message(or_f(Command("unscam"), F.text.regexp(r"(?i)^\.unscam(?:$|\s+)")))
+async def remove_scam_id(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.reply("❌ Only Owner can use this command.")
+        
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        return await message.reply("⚠️ **Usage:** `.unscam <Game_ID>`")
+        
+    scam_id = parts[1].strip()
+    
+    # Database နှင့် Memory ထဲမှ ဖယ်ရှားမည်
+    removed = await db.remove_scammer(scam_id)
+    GLOBAL_SCAMMERS.discard(scam_id)
+    
+    if removed:
+        await message.reply(f"✅ **Scammer ID Removed:** <code>{scam_id}</code>\nBlacklist ထဲမှ အောင်မြင်စွာ ဖယ်ရှားလိုက်ပါပြီ။", parse_mode=ParseMode.HTML)
+    else:
+        await message.reply(f"⚠️ ထို ID သည် Scammer စာရင်းထဲတွင် မရှိပါ။")
+
+@dp.message(or_f(Command("scamlist"), F.text.regexp(r"(?i)^\.scamlist$")))
+async def show_scam_list(message: types.Message):
+    if message.from_user.id != OWNER_ID: 
+        return await message.reply("❌ Only Owner can use this command.")
+        
+    if not GLOBAL_SCAMMERS:
+        return await message.reply("✅ ယခုလောလောဆယ် Blacklist သွင်းထားသော Scammer မရှိပါ။")
+        
+    scam_text = "\n".join([f"🔸 <code>{sid}</code>" for sid in GLOBAL_SCAMMERS])
+    await message.reply(f"🚨 **Scammer Blacklist (Total: {len(GLOBAL_SCAMMERS)}):**\n\n{scam_text}", parse_mode=ParseMode.HTML)
+
+
 # ==========================================
 # ℹ️ HELP & START COMMANDS
 # ==========================================
@@ -1587,10 +1671,22 @@ async def send_welcome(message: types.Message):
 # ==========================================
 async def main():
     print("Starting Heartbeat & Auto-login tasks...")
-    print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်.....")
+    print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်")
     
     loop = asyncio.get_running_loop()
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=50))
+    
+    # 🟢 (၁) Scammer List ကို Database မှ ဆွဲယူပြီး Memory တွင် မှတ်ထားမည်
+    global GLOBAL_SCAMMERS
+    try:
+        scammer_list = await db.get_all_scammers()
+        GLOBAL_SCAMMERS = set(scammer_list)
+        print(f"Loaded {len(GLOBAL_SCAMMERS)} Scammer IDs.")
+    except Exception as e:
+        print(f"Error loading scammers: {e}")
+
+    # 🟢 (၂) Message အားလုံးကို ဖမ်းယူစစ်ဆေးမည့် Middleware ကို ချိတ်ဆက်မည်
+    dp.message.middleware(ScamAlertMiddleware())
     
     asyncio.create_task(keep_cookie_alive())
     asyncio.create_task(schedule_daily_cookie_renewal())

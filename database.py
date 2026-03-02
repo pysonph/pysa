@@ -213,3 +213,20 @@ async def get_total_system_balances():
             "total_ph": round(result[0].get("total_ph", 0.0), 2)
         }
     return {"total_br": 0.0, "total_ph": 0.0}
+
+
+# ==========================================
+# 🚨 SCAMMER ALERT SYSTEM (DATABASE)
+# ==========================================
+async def add_scammer(game_id: str):
+    await db.scammers.update_one({"game_id": game_id}, {"$set": {"game_id": game_id}}, upsert=True)
+    return True
+
+async def remove_scammer(game_id: str):
+    result = await db.scammers.delete_one({"game_id": game_id})
+    return result.deleted_count > 0
+
+async def get_all_scammers():
+    cursor = db.scammers.find({})
+    return [doc["game_id"] async for doc in cursor]
+

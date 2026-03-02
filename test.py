@@ -941,7 +941,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             return
             
         start_time = time.time()
-        loading_msg = await message.reply(f"⏱ ID ({len(parsed_orders)}) ခုစာ Order လက်ခံရရှိပါသည်... တစ်ပြိုင်နက်တည်း ဝယ်ယူနေပါသည် ᥫ᭡")
+        loading_msg = await message.reply(f"Order processing({len(parsed_orders)}) ᥫ᭡")
 
         async def process_order_line(order):
             game_id = order['game_id']

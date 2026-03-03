@@ -943,7 +943,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             return
             
         start_time = time.time()
-        loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} | {res['fail_count']} ] ● ᥫ᭡")
+        loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} | 0 ] ● ᥫ᭡")
 
         async def process_order_line(order):
             game_id = order['game_id']

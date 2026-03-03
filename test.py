@@ -969,21 +969,21 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 safe_item_name = html.escape(str(final_item_name)) 
                 
                 report = (
-                    f"<blockquote><code>{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})\n"
-                    f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
-                    f"{'ᴏʀᴅᴇʀ sᴛᴀᴛᴜs':<13}: ✅ Sᴜᴄᴄᴇss\n"
-                    f"{'ɢᴀᴍᴇ ɪᴅ':<13}: {res['game_id']} {res['zone_id']}\n"
-                    f"{'ɪɢ ɴᴀᴍᴇ':<13}: {safe_ig_name}\n"
-                    f"{'sᴇʀɪᴀʟ':<13}:\n"
+                    f"<blockquote><pre>{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})\n"
+                    f"=== TRANSACTION REPORT ===\n\n"
+                    f"ORDER STATUS : ✅ SUCCESS\n"
+                    f"GAME ID      : {res['game_id']} {res['zone_id']}\n"
+                    f"IG NAME      : {safe_ig_name}\n"
+                    f"SERIAL       :\n"
                     f"{res['order_ids_str'].strip()}\n"
-                    f"{'ɪᴛᴇᴍ':<13}: {safe_item_name}\n"
-                    f"{'sᴘᴇɴᴛ':<13}: {res['total_spent']:.2f} 🪙\n\n"
-                    f"{'ᴅᴀᴛᴇ':<13}: {date_str}\n"
-                    f"{'ᴜsᴇʀɴᴀᴍᴇ':<13}: {safe_username}\n"
-                    f"{'ɪɴɪᴛɪᴀʟ':<13}: ${initial_bal_for_receipt:,.2f}\n"
-                    f"{'ғɪɴᴀʟ':<13}: ${new_v_bal:,.2f}\n\n"
-                    f"Sᴜᴄᴄᴇss {res['success_count']} / Fᴀɪʟ {res['fail_count']}\n"
-                    f"{'Tɪᴍᴇ ᴛᴀᴋᴇɴ':<13}: {time_taken_seconds} sᴇᴄᴏɴᴅs</code></blockquote>"
+                    f"ITEM         : {safe_item_name}\n"
+                    f"SPENT        : {res['total_spent']:.2f} 🪙\n\n"
+                    f"DATE         : {date_str}\n"
+                    f"USERNAME     : {safe_username}\n"
+                    f"INITIAL      : ${initial_bal_for_receipt:,.2f}\n"
+                    f"FINAL        : ${new_v_bal:,.2f}\n\n"
+                    f"SUCCESS {res['success_count']} / FAIL {res['fail_count']}\n"
+                    f"TIME TAKEN   : {time_taken_seconds} SECONDS</pre></blockquote>"
                 )
                 await message.reply(report, parse_mode=ParseMode.HTML)
                 

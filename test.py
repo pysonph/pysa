@@ -1214,35 +1214,39 @@ async def check_cookie_status(message: types.Message):
 async def handle_check_role(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     match = re.search(r"(?i)^[./]?role\s+(\d+)\s*[\(]?\s*(\d+)\s*[\)]?", message.text.strip())
-    if not match: return await message.reply("❌ Invalid format.")
+    if not match: return await message.reply("❌ Invalid format. Use: `/role 12345678 1234`")
+    
     game_id, zone_id = match.group(1).strip(), match.group(2).strip()
-    loading_msg = await message.reply("Search region")
+    loading_msg = await message.reply("🔍 <b>Searching User Details & Double Status...</b>", parse_mode=ParseMode.HTML)
 
     scraper = await get_main_scraper()
     main_url = 'https://www.smile.one/merchant/mobilelegends'
     checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
+    query_url = 'https://www.smile.one/merchant/mobilelegends/query'
     headers = {'X-Requested-With': 'XMLHttpRequest', 'Referer': main_url, 'Origin': 'https://www.smile.one'}
 
     try:
+        # 1. Get CSRF Token
         res = await scraper.get(main_url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
         meta_tag = soup.find('meta', {'name': 'csrf-token'})
         csrf_token = meta_tag.get('content') if meta_tag else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
         if not csrf_token: return await loading_msg.edit_text("❌ CSRF Token not found.")
 
+        # 2. Check Role (Name & Region)
         role_response_raw = await scraper.post(checkrole_url, data={'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}, headers=headers)
         try: role_result = role_response_raw.json()
         except: return await loading_msg.edit_text("❌ Cannot verify.")
             
         ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
-        if not ig_name or str(ig_name).strip() == "": return await loading_msg.edit_text("❌ **Invalid Account:**")
+        if not ig_name or str(ig_name).strip() == "": return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect.")
 
         smile_region = role_result.get('zone') or role_result.get('region') or role_result.get('data', {}).get('zone') or "Unknown"
         pizzo_region = "Unknown"
         try:
             pizzo_headers = {'authority': 'pizzoshop.com', 'content-type': 'application/x-www-form-urlencoded', 'origin': 'https://pizzoshop.com', 'user-agent': 'Mozilla/5.0'}
-            await scraper.get("https://pizzoshop.com/mlchecker", headers=pizzo_headers, timeout=10)
-            pizzo_res_raw = await scraper.post("https://pizzoshop.com/mlchecker/check", data={'user_id': game_id, 'zone_id': zone_id}, headers=pizzo_headers, timeout=15)
+            await scraper.get("https://pizzoshop.com/mlchecker", headers=pizzo_headers, timeout=5)
+            pizzo_res_raw = await scraper.post("https://pizzoshop.com/mlchecker/check", data={'user_id': game_id, 'zone_id': zone_id}, headers=pizzo_headers, timeout=5)
             pizzo_soup = BeautifulSoup(pizzo_res_raw.text, 'html.parser')
             table = pizzo_soup.find('table', class_='table-modern')
             if table:
@@ -1253,8 +1257,46 @@ async def handle_check_role(message: types.Message):
         except: pass
 
         final_region = pizzo_region if pizzo_region != "Unknown" else smile_region
-        await loading_msg.edit_text(f"ɢᴀᴍᴇ ɪᴅ : {game_id} ({zone_id})\nɪɢɴ ɴᴀᴍᴇ : {ig_name}\nʀᴇɢɪᴏɴ : {final_region}")
-    except Exception as e: await loading_msg.edit_text(f"❌ System Error: {str(e)}")
+
+        # 3. 🟢 FAST CONCURRENT CHECK FOR DOUBLE BONUS 🟢
+        # PIDs for Double: 50(22590), 150(22591), 250(22592), 500(22593)
+        async def check_double_status(pid):
+            q_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': pid, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
+            try:
+                q_res = await scraper.post(query_url, data=q_data, headers=headers)
+                data = q_res.json()
+                if data.get('flowid') or data.get('data', {}).get('flowid'): return "🟢"
+                else: return "🔴"
+            except: return "🔴"
+
+        tasks = [
+            check_double_status('22590'),
+            check_double_status('22591'),
+            check_double_status('22592'),
+            check_double_status('22593')
+        ]
+        
+        # Run all checks at the same time (မြန်ဆန်ရန် asyncio.gather သုံးထားသည်)
+        double_results = await asyncio.gather(*tasks)
+        d_50, d_150, d_250, d_500 = double_results
+
+        # 4. Final Output Formatting
+        final_report = (
+            f"<b>MLBB DIA & MCGG BOT</b>\n\n"
+            f"📊 <b>User Details</b>\n\n"
+            f"🆔 User ID: <code>{game_id} ({zone_id})</code>\n"
+            f"👤 Nickname: {ig_name}\n"
+            f"🌍 Region: {final_region}\n\n"
+            f"🏷 <b>Double Details</b>\n\n"
+            f"📒 Bonus 50: {d_50}\n"
+            f"📗 Bonus 150: {d_150}\n"
+            f"📘 Bonus 250: {d_250}\n"
+            f"📕 Bonus 500: {d_500}"
+        )
+
+        await loading_msg.edit_text(final_report, parse_mode=ParseMode.HTML)
+    except Exception as e: 
+        await loading_msg.edit_text(f"❌ System Error: {str(e)}")
 
 @dp.message(or_f(Command("checkcus"), Command("cus"), F.text.regexp(r"(?i)^\.(?:checkcus|cus)(?:$|\s+)")))
 async def check_official_customer(message: types.Message):

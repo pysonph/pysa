@@ -1258,15 +1258,16 @@ async def handle_check_role(message: types.Message):
 
         final_region = pizzo_region if pizzo_region != "Unknown" else smile_region
 
-        # 3. 🟢 FAST CONCURRENT CHECK FOR DOUBLE BONUS (Product Name ဖြင့်စစ်ဆေးခြင်း) 🟢
-        async def check_double_status(pid, regular_amount, double_amount):
+        # 3. 🟢 SEQUENTIAL CHECK FOR DOUBLE BONUS (Rate Limit ကိုရှောင်ရှားရန်) 🟢
+        async def check_double_status(pid, regular_amount):
             q_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': pid, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
             try:
                 q_res = await scraper.post(query_url, data=q_data, headers=headers)
                 data = q_res.json()
                 
-                # လုံးဝဝယ်မရတော့ပါက 🔴 ပြမည်
-                if not (data.get('flowid') or data.get('data', {}).get('flowid')):
+                # Flow ID မရရင် (ဥပမာ - ဝယ်ပြီးသားမို့လို့ Error ပြတာမျိုး) 🔴 ပြမည်
+                flowid = data.get('flowid') or data.get('data', {}).get('flowid')
+                if not flowid:
                     return "🔴"
                     
                 # Smile.one ဘက်မှ ပြန်ချပေးမည့် Product Name ကို ဖမ်းယူစစ်ဆေးမည်
@@ -1280,33 +1281,28 @@ async def handle_check_role(message: types.Message):
                 
                 if prod_name:
                     # နာမည်ထဲမှာ ရိုးရိုး Amount (ဥပမာ 565) ပါနေရင် Double မရတော့ပါ
-                    if regular_amount in prod_name:
+                    if str(regular_amount) in prod_name:
                         return "🔴"
                     return "🟢"
                     
-                # Name မတွေ့ပါက Raw Text ထဲတွင် ရာခိုင်နှုန်းများများဖြင့် ရှာမည်
+                # Name မတွေ့ပါက Raw Text ထဲတွင် ရှာမည်
                 text = q_res.text.lower()
-                if f"{regular_amount} diam" in text or f"{regular_amount} d" in text:
+                if f"{regular_amount}" in text:
                     return "🔴"
-                elif f"{double_amount}" in text:
-                    return "🟢"
-                else:
-                    return "🔴"
+                return "🟢"
             except:
                 return "🔴"
 
-        # 4. Double PIDs နှင့် သူတို့၏ Regular & Double ပမာဏများကို သတ်မှတ်၍ တပြိုင်နက်တည်း စစ်ဆေးမည်
-        tasks = [
-            check_double_status('22590', '55', '50'),    # 50 Double
-            check_double_status('22591', '165', '150'),  # 150 Double
-            check_double_status('22592', '275', '250'),  # 250 Double
-            check_double_status('22593', '565', '500')   # 500 Double
-        ]
-        
-        double_results = await asyncio.gather(*tasks)
-        d_50, d_150, d_250, d_500 = double_results
+        # ပြိုင်တူမလှမ်းဘဲ တစ်ခုပြီးမှတစ်ခု အနည်းငယ် Time Delay ခြား၍ လှမ်းမည်
+        d_50 = await check_double_status('22590', '55')
+        await asyncio.sleep(0.3)
+        d_150 = await check_double_status('22591', '165')
+        await asyncio.sleep(0.3)
+        d_250 = await check_double_status('22592', '275')
+        await asyncio.sleep(0.3)
+        d_500 = await check_double_status('22593', '565')
 
-        # 5. Output ထုတ်ပေးခြင်း
+        # 4. Output ထုတ်ပေးခြင်း
         final_report = (
             f"<b>MLBB DIA & MCGG BOT</b>\n\n"
             f"📊 <b>User Details</b>\n\n"

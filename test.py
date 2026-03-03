@@ -943,7 +943,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             return
             
         start_time = time.time()
-        loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} ] ● ᥫ᭡")
+        loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} | {res['fail_count']} ] ● ᥫ᭡")
 
         async def process_order_line(order):
             game_id = order['game_id']
@@ -1424,9 +1424,9 @@ async def check_official_customer(message: types.Message):
             raw_item_name = raw_item_name.strip()
             
             if currency_sym == 'PHP':
-                final_item_name = f"Mobile Legends PH - {raw_item_name}"
+                final_item_name = f"{raw_item_name}"
             else:
-                final_item_name = f"Mobile Legends BR - {raw_item_name}"
+                final_item_name = f"{raw_item_name}"
             
             price = str(order.get('price') or order.get('grand_total') or order.get('real_money') or '0.00')
             if currency_sym != '$':
@@ -1549,20 +1549,22 @@ async def format_and_copy_text(message: types.Message):
 class ScamAlertMiddleware(BaseMiddleware):
     async def __call__(self, handler, event: types.Message, data: dict):
         if event.text:
-            # ဝင်လာတဲ့ စာသားတိုင်းမှာ Scammer ID ပါမပါ စက္ကန့်ပိုင်းအတွင်း စစ်ဆေးမည်
+            text_lower = event.text.lower()
+            
+            # 🟢 Owner က .scam / .unscam ဖြင့် စာရင်းသွင်း/ဖြုတ် နေချိန်တွင် Alert မပြစေရန် ရှောင်ပေးမည်
+            if text_lower.startswith(".scam ") or text_lower.startswith(".unscam ") or text_lower.startswith("/scam") or text_lower.startswith("/unscam"):
+                return await handler(event, data)
+                
+            # ဝင်လာတဲ့ စာသားတိုင်းမှာ Scammer ID ပါ/မပါ စစ်ဆေးမည်
             for scam_id in GLOBAL_SCAMMERS:
-                # Regex သုံး၍ ဂဏန်းအတိအကျတူမှသာ ဖမ်းမည်
                 pattern = rf"\b{scam_id}\b"
                 if re.search(pattern, event.text):
+                    # Scammer ID တွေ့ပါက သတိပေး Message ပြမည်
                     await event.reply(
-                        f"🚨 <b>SCAMMER ALERT</b> 🚨\n\n"
-                        f"⚠️ <b>သတိပြုပါ!</b> ဤ Game ID: <code>{scam_id}</code> သည် လိမ်လည်သူ (Scammer) အဖြစ် စာရင်းသွင်းထားသော ID ဖြစ်ပါသည်။\n"
-                        f"❌ <b>Bot မှ မည်သည့် ဝယ်ယူမှုလုပ်ဆောင်ချက်ကိုမှ လက်ခံမည်မဟုတ်ပါ။</b>",
+                        "🚨 <b>Scamer game id , Scamer Alert</b> 🚨",
                         parse_mode=ParseMode.HTML
                     )
-                    return # Scammer ID တွေ့ပါက ဤနေရာတွင် ရပ်မည် (Top-up ဆက်မလုပ်တော့ပါ)
-        
-        # Scammer မဟုတ်ပါက ပုံမှန်အတိုင်း ဆက်လုပ်မည်
+                    break 
         return await handler(event, data)
 
 # ==========================================

@@ -1217,121 +1217,111 @@ async def handle_check_role(message: types.Message):
     if not match: return await message.reply("❌ Invalid format. Use: `.role 12345678 1234`")
     
     game_id, zone_id = match.group(1).strip(), match.group(2).strip()
-    loading_msg = await message.reply("🔍 <b>Searching User Details & Double Status...</b>", parse_mode=ParseMode.HTML)
+    loading_msg = await message.reply("🔍 <b>Checking via Official API...</b>", parse_mode=ParseMode.HTML)
 
     scraper = await get_main_scraper()
-    main_url = 'https://www.smile.one/merchant/mobilelegends'
-    checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
-    query_url = 'https://www.smile.one/merchant/mobilelegends/query'
+    
+    url = 'https://coldofficialstore.com/api/name-checker/mlbb'
+    params = {
+        'user_id': game_id,
+        'server_id': zone_id,
+    }
+    
+    cookies = {
+        'connect.sid': 's%3Apwvynle8o6kOS0mIYBnISiEHIuP5v-Kv.8GZooUmfYNyKvAMwY5vhddgOmtC6LCuhB58RiF2DsY0',
+    }
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'X-Requested-With': 'XMLHttpRequest', 
-        'Referer': main_url, 
-        'Origin': 'https://www.smile.one'
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Pragma': 'no-cache',
+        'Referer': 'https://coldofficialstore.com/name-checker',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
     }
 
     try:
-        # 1. CSRF Token ယူခြင်း
-        res = await scraper.get(main_url, headers=headers)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        meta_tag = soup.find('meta', {'name': 'csrf-token'})
-        csrf_token = meta_tag.get('content') if meta_tag else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
-        if not csrf_token: return await loading_msg.edit_text("❌ CSRF Token not found.")
-
-        # 2. Checkrole API ကို လှမ်းခေါ်ခြင်း
-        role_response_raw = await scraper.post(checkrole_url, data={'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}, headers=headers)
-        try: role_result = role_response_raw.json()
-        except: return await loading_msg.edit_text("❌ Cannot verify.")
-            
-        ig_name = role_result.get('username') or role_result.get('data', {}).get('username')
-        if not ig_name or str(ig_name).strip() == "": return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect.")
-
-        smile_region = role_result.get('zone') or role_result.get('region') or role_result.get('data', {}).get('zone') or "Unknown"
-        pizzo_region = "Unknown"
+        res = await scraper.get(url, params=params, cookies=cookies, headers=headers, timeout=15)
+        
         try:
-            pizzo_headers = {'authority': 'pizzoshop.com', 'content-type': 'application/x-www-form-urlencoded', 'origin': 'https://pizzoshop.com', 'user-agent': 'Mozilla/5.0'}
-            await scraper.get("https://pizzoshop.com/mlchecker", headers=pizzo_headers, timeout=5)
-            pizzo_res_raw = await scraper.post("https://pizzoshop.com/mlchecker/check", data={'user_id': game_id, 'zone_id': zone_id}, headers=pizzo_headers, timeout=5)
-            pizzo_soup = BeautifulSoup(pizzo_res_raw.text, 'html.parser')
-            table = pizzo_soup.find('table', class_='table-modern')
-            if table:
-                for row in table.find_all('tr'):
-                    th, td = row.find('th'), row.find('td')
-                    if th and td and ('region id' in th.get_text(strip=True).lower() or 'region' in th.get_text(strip=True).lower()):
-                        pizzo_region = td.get_text(strip=True)
-        except: pass
+            data = res.json()
+        except Exception:
+            return await loading_msg.edit_text(f"❌ API Error: Invalid Response.\n\n<code>{res.text[:100]}...</code>", parse_mode=ParseMode.HTML)
 
-        final_region = pizzo_region if pizzo_region != "Unknown" else smile_region
+        info = data.get('data', data) if isinstance(data, dict) else data
+        ig_name = info.get('username', info.get('name', info.get('nickname', info.get('userName', 'Unknown'))))
+        
+        if not ig_name or str(ig_name).strip() == "" or ig_name == 'Unknown':
+            return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect or not found.", parse_mode=ParseMode.HTML)
+            
+        final_region = info.get('country', info.get('region', info.get('countryCode', 'Unknown')))
 
-        # 3. 🟢 Smile.one Server မှ ပြန်ချပေးသော 'limit_items' (ဝယ်ယူပြီးသားစာရင်း) ကို ဖမ်းယူခြင်း 🟢
-        limit_items = []
-        def extract_limits(data_obj):
-            if isinstance(data_obj, dict):
-                for k, v in data_obj.items():
-                    # 'limit_items' သို့မဟုတ် 'bought_list' စသည့် ကုန်သွားသည့်စာရင်းများကို ရှာဖွေသည်
-                    if k in ['limit_items', 'bought_list', 'bought', 'limits']:
-                        if isinstance(v, list):
-                            limit_items.extend([str(i) for i in v])
-                        elif isinstance(v, str):
-                            limit_items.append(str(v))
-                    else:
-                        extract_limits(v)
-            elif isinstance(data_obj, list):
-                for item in data_obj:
-                    extract_limits(item)
-                    
-        extract_limits(role_result)
-
-        # 4. Double Status စစ်ဆေးခြင်း
-        async def check_double_status(pid):
-            # Smile.one က ပြန်ချပေးတဲ့ ကုန်သွားတဲ့စာရင်း (limit_items) ထဲမှာ PID ပါနေရင် သေချာပေါက် 🔴 ပြမည်
-            if str(pid) in limit_items:
-                return "🔴"
+        import json
+        import re
+        json_dump = json.dumps(data).lower()
+        
+        # 🟢 ပုံထဲကအတိုင်း ✅ Bonus Available နဲ့ ❌ Bonus Used ပြောင်းပေးထားသည်
+        def get_bonus_status(amt):
+            def search_dict(d):
+                if isinstance(d, dict):
+                    for k, v in d.items():
+                        key_str = str(k).lower()
+                        if key_str == str(amt) or key_str == f"{amt}+{amt}" or key_str == f"bonus_{amt}":
+                            return v
+                        if isinstance(v, (dict, list)):
+                            res = search_dict(v)
+                            if res is not None: return res
+                elif isinstance(d, list):
+                    for item in d:
+                        res = search_dict(item)
+                        if res is not None: return res
+                return None
                 
-            # သေချာစေရန် Query ပါ ထပ်လှမ်းစစ်ပါမည်
-            q_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': pid, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
-            try:
-                q_res = await scraper.post(query_url, data=q_data, headers=headers, timeout=10)
-                data = q_res.json()
-                
-                # Flow ID လုံးဝမရရင် ဝယ်မရတဲ့သဘောမို့ 🔴 ပြမည်
-                if not (data.get('flowid') or data.get('data', {}).get('flowid')):
-                    return "🔴"
+            val = search_dict(info)
+            if val is not None:
+                if isinstance(val, bool): return "✅ Bonus Available" if val else "❌ Bonus Used"
+                if isinstance(val, int): return "✅ Bonus Available" if val == 1 else "❌ Bonus Used"
+                if isinstance(val, str):
+                    vl = val.lower()
+                    if 'used' in vl or 'false' in vl or 'no' in vl or '0' == vl: return "❌ Bonus Used"
+                    return "✅ Bonus Available"
                     
-                # Flow ID ရပေမယ့် change_price 0 ဖြစ်နေရင် (သို့) ရိုးရိုးစျေးဖြစ်သွားရင်
-                if 'change_price' in data and data.get('change_price') == 0:
-                    return "🔴"
-                    
-                return "🟢"
-            except:
-                return "🔴"
+            p_false = rf'"{amt}(?:\+{amt})?"\s*:\s*(?:false|0|"used"|"[^"]*used[^"]*")'
+            p_true = rf'"{amt}(?:\+{amt})?"\s*:\s*(?:true|1|"available"|"[^"]*available[^"]*")'
+            
+            if re.search(p_false, json_dump): return "❌ Bonus Used"
+            if re.search(p_true, json_dump): return "✅ Bonus Available"
+            
+            return "❓ Unknown"
 
-        # Rate Limit မထိစေရန် တစ်ခုချင်းစီ အချိန်ခဏခြားပြီး စစ်မည်
-        d_50 = await check_double_status('22590')
-        await asyncio.sleep(0.3)
-        d_150 = await check_double_status('22591')
-        await asyncio.sleep(0.3)
-        d_250 = await check_double_status('22592')
-        await asyncio.sleep(0.3)
-        d_500 = await check_double_status('22593')
+        d_50 = get_bonus_status('50')
+        d_150 = get_bonus_status('150')
+        d_250 = get_bonus_status('250')
+        d_500 = get_bonus_status('500')
 
-        # 5. Output ပြသခြင်း
+        # 🟢 ပုံစံကို Web UI အတိုင်း သပ်ရပ်အောင် ပြင်ဆင်ထားသည်
         final_report = (
-            f"<b>MLBB DIA & MCGG BOT</b>\n\n"
-            f"📊 <b>User Details</b>\n\n"
-            f"🆔 User ID: <code>{game_id} ({zone_id})</code>\n"
-            f"👤 Nickname: {ig_name}\n"
-            f"🌍 Region: {final_region}\n\n"
-            f"🏷 <b>Double Details</b>\n\n"
-            f"📒 Bonus 50: {d_50}\n"
-            f"📗 Bonus 150: {d_150}\n"
-            f"📘 Bonus 250: {d_250}\n"
-            f"📕 Bonus 500: {d_500}"
+            f"<blockquote>👤 <b>Username:</b> {ig_name}\n\n"
+            f"🆔 <b>User ID:</b> <code>{game_id}</code>\n\n"
+            f"🌍 <b>Server ID:</b> <code>{zone_id}</code>\n\n"
+            f"🌐 <b>Country:</b> {final_region}\n\n"
+            f"🎁 <b>First Recharge Bonus Status</b>\n\n"
+            f"<b>[ 50+50 ]</b>\n"
+            f"╰ {d_50}\n\n"
+            f"<b>[ 150+150 ]</b>\n"
+            f"╰ {d_150}\n\n"
+            f"<b>[ 250+250 ]</b>\n"
+            f"╰ {d_250}\n\n"
+            f"<b>[ 500+500 ]</b>\n"
+            f"╰ {d_500}</blockquote>"
         )
 
         await loading_msg.edit_text(final_report, parse_mode=ParseMode.HTML)
     except Exception as e: 
-        await loading_msg.edit_text(f"❌ System Error: {str(e)}")
+        await loading_msg.edit_text(f"❌ System Error: {str(e)}", parse_mode=ParseMode.HTML)
 
 @dp.message(or_f(Command("checkcus"), Command("cus"), F.text.regexp(r"(?i)^\.(?:checkcus|cus)(?:$|\s+)")))
 async def check_official_customer(message: types.Message):

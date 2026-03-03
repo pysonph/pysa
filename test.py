@@ -828,7 +828,6 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
     
     async with user_locks[tg_id]: 
         parsed_orders = []
-        total_required_price = 0.0
         
         for line in lines:
             line = line.strip()
@@ -869,7 +868,6 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 continue
                 
             line_price = sum(item['price'] for item in items_to_buy)
-            total_required_price += line_price
             parsed_orders.append({
                 'game_id': game_id, 
                 'zone_id': zone_id, 
@@ -884,12 +882,13 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
         user_wallet = await db.get_reseller(tg_id)
         user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
         
-        if user_v_bal < total_required_price:
-            await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nTotal Nᴇᴇᴅᴇᴅ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
-            return
+        # 🟢 ဖယ်ရှားလိုက်သောအပိုင်း: Item မဝယ်ခင် ကြိုတင် Balance စစ်ပြီး Error စာတန်းပြခြင်းကို ဖြုတ်လိုက်ပါပြီ။
             
         start_time = time.time()
         loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} | 0 ] ● ᥫ᭡")
+
+        # 🟢 တကယ်ဝယ်သည့်အချိန်မှသာ Balance ကို Item တစ်ခုချင်းစီအလိုက် စစ်ဆေးရန်
+        current_v_bal = [user_v_bal] 
 
         async def process_order_line(order):
             game_id = order['game_id']
@@ -900,7 +899,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             success_count, fail_count, total_spent = 0, 0, 0.0
             order_ids_str, ig_name, error_msg = "", "Unknown", ""
             actual_names_list = [] 
-            failed_names_list = [] # 🟢 Fail ဖြစ်သွားသော Item များကို မှတ်ထားရန်
+            failed_names_list = [] 
             
             async with api_semaphore:
                 prev_context = None
@@ -908,6 +907,17 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 last_success_order = ""
                 
                 for item in items_to_buy:
+                    # 🟢 တကယ်ဝယ်မည့်အချိန်ကျမှ V-Wallet တွင် ငွေလောက်/မလောက် စစ်ဆေးမည်
+                    if current_v_bal[0] < item['price']:
+                        fail_count += 1
+                        error_msg = "Insufficient balance"
+                        failed_names_list.append(item.get('name', raw_items_str))
+                        is_first = False
+                        continue
+
+                    # ပိုက်ဆံလောက်ပါက ခဏ နှုတ်ထားမည် (ထပ်နေသော Order များ Overspend မဖြစ်စေရန်)
+                    current_v_bal[0] -= item['price']
+
                     skip_check = not is_first
                     res = await process_func(
                         game_id, zone_id, item['pid'], currency, 
@@ -924,6 +934,8 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                         prev_context = {'csrf_token': res['csrf_token']}
                         last_success_order = res['order_id']
                     else:
+                        # ဝယ်ယူမှု မအောင်မြင်ပါက နှုတ်ထားသောငွေကို ပြန်ပေါင်းပေးမည်
+                        current_v_bal[0] += item['price']
                         fail_count += 1
                         error_msg = res['message']
                         failed_names_list.append(item.get('name', raw_items_str))
@@ -952,7 +964,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             initial_bal_for_receipt = user_v_bal
             new_v_bal = user_v_bal
             
-            # 🟢 <blockquote><pre> ကိုအသုံးပြု၍ ဘေလ်တစ်ခုတည်းမှာ အတိအကျညီအောင် ပေါင်းထုတ်ပေးမည့်အပိုင်း
+            # 🟢 <blockquote><pre> ဖြင့် အထက်အောက် ညီညာသော Bill ဖန်တီးခြင်း
             report = f"<blockquote><pre>{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})\n"
             report += f"=== TRANSACTION REPORT ===\n\n"
 

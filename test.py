@@ -820,177 +820,72 @@ async def clean_order_history(message: types.Message):
     if deleted_count > 0: await message.reply(f"🗑️ **History Cleaned Successfully.**\nDeleted {deleted_count} order records from your history.")
     else: await message.reply("📜 **No Order History Found to Clean.**")
 
-async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
-    tg_id = str(message.from_user.id)
-    telegram_user = message.from_user.username
-    username_display = f"@{telegram_user}" if telegram_user else tg_id
-    v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
-    
-    async with user_locks[tg_id]: 
-        parsed_orders = []
-        total_required_price = 0.0
-        
-        for line in lines:
-            line = line.strip()
-            if not line: continue 
-            match = re.search(regex_pattern, line)
-            if not match:
-                await message.reply(f"Invalid format: `{line}`\nCheck /help for correct format.")
-                continue
-                
-            game_id = match.group(1)
-            zone_id = match.group(2)
-            raw_items_str = match.group(3).lower()
+for res in line_results:
+            now = datetime.datetime.now(MMT)
+            date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
             
-            requested_packages = raw_items_str.split()
-            items_to_buy = []
-            not_found_pkgs = []
+            safe_ig_name = html.escape(str(res['ig_name']))
+            safe_username = html.escape(str(username_display))
             
-            for pkg in requested_packages:
-                active_packages = None
-                if isinstance(packages_dict, list):
-                    for p_dict in packages_dict:
-                        if pkg in p_dict: 
-                            active_packages = p_dict
-                            break
-                else:
-                    if pkg in packages_dict: 
-                        active_packages = packages_dict
-                        
-                if active_packages: 
-                    items_to_buy.extend(active_packages[pkg])
-                else: 
-                    not_found_pkgs.append(pkg)
-                    
-            if not_found_pkgs:
-                await message.reply(f"❌ Package(s) not found for ID {game_id}: {', '.join(not_found_pkgs)}")
-                continue
-            if not items_to_buy: 
-                continue
-                
-            line_price = sum(item['price'] for item in items_to_buy)
-            total_required_price += line_price
-            parsed_orders.append({
-                'game_id': game_id, 
-                'zone_id': zone_id, 
-                'raw_items_str': raw_items_str, 
-                'items_to_buy': items_to_buy, 
-                'line_price': line_price
-            })
+            initial_bal_for_receipt = user_v_bal
+            new_v_bal = user_v_bal
             
-        if not parsed_orders: 
-            return
+            # 🟢 <blockquote><pre> ကိုအသုံးပြု၍ ဘေလ်တစ်ခုတည်းမှာ အတိအကျညီအောင် ပေါင်းထုတ်ပေးမည့်အပိုင်း
+            report = f"<blockquote><pre>{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})\n"
+            report += f"=== TRANSACTION REPORT ===\n\n"
 
-        user_wallet = await db.get_reseller(tg_id)
-        user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
-        
-        if user_v_bal < total_required_price:
-            await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nTotal Nᴇᴇᴅᴇᴅ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
-            return
-            
-        start_time = time.time()
-        loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} | 0 ] ● ᥫ᭡")
-
-        async def process_order_line(order):
-            game_id = order['game_id']
-            zone_id = order['zone_id']
-            raw_items_str = order['raw_items_str']
-            items_to_buy = order['items_to_buy']
-            
-            success_count, fail_count, total_spent = 0, 0, 0.0
-            order_ids_str, ig_name, error_msg = "", "Unknown", ""
-            actual_names_list = [] 
-            
-            async with api_semaphore:
-                prev_context = None
-                is_first = True
-                last_success_order = ""
-                
-                for item in items_to_buy:
-                    skip_check = not is_first
-                    res = await process_func(
-                        game_id, zone_id, item['pid'], currency, 
-                        prev_context=prev_context, skip_role_check=skip_check, 
-                        known_ig_name=ig_name, last_success_order_id=last_success_order
-                    )
-                    
-                    if res['status'] == 'success':
-                        success_count += 1
-                        total_spent += item['price']
-                        order_ids_str += f"{res['order_id']}\n"
-                        ig_name = res['ig_name']
-                        actual_names_list.append(item.get('name', raw_items_str))
-                        prev_context = {'csrf_token': res['csrf_token']}
-                        last_success_order = res['order_id']
-                    else:
-                        fail_count += 1
-                        error_msg = res['message']
-                        
-                    is_first = False
-                        
-            return {
-                'game_id': game_id, 'zone_id': zone_id, 'raw_items_str': raw_items_str, 
-                'success_count': success_count, 'fail_count': fail_count, 'total_spent': total_spent, 
-                'order_ids_str': order_ids_str, 'ig_name': ig_name, 'error_msg': error_msg, 
-                'actual_names_list': actual_names_list
-            }
-
-        line_tasks = [process_order_line(order) for order in parsed_orders]
-        line_results = await asyncio.gather(*line_tasks)
-        time_taken_seconds = int(time.time() - start_time)
-        await loading_msg.delete() 
-
-        for res in line_results:
+            # အောင်မြင်သော အပိုင်း (Success Section)
             if res['success_count'] > 0:
-                now = datetime.datetime.now(MMT)
-                date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
-                
                 if currency == 'BR': await db.update_balance(tg_id, br_amount=-res['total_spent'])
                 else: await db.update_balance(tg_id, ph_amount=-res['total_spent'])
                 
                 new_wallet = await db.get_reseller(tg_id)
                 new_v_bal = new_wallet.get(v_bal_key, 0.0) if new_wallet else 0.0
                 initial_bal_for_receipt = new_v_bal + res['total_spent']
+                
                 final_order_ids = res['order_ids_str'].strip().replace('\n', ', ')
                 
-                unique_names = list(set(res['actual_names_list']))
-                if len(unique_names) == 1: 
-                    final_item_name = f"{unique_names[0]} (x{res['success_count']})" if res['success_count'] > 1 else unique_names[0]
-                else: 
-                    final_item_name = ", ".join(res['actual_names_list'])
-
+                unique_success = list(set(res['actual_names_list']))
+                success_item_name = ", ".join(unique_success) if unique_success else res['raw_items_str']
+                
+                # Database ထဲ သိမ်းမည်
                 await db.save_order(
-                    tg_id=tg_id, game_id=res['game_id'], zone_id=res['zone_id'], item_name=final_item_name, 
+                    tg_id=tg_id, game_id=res['game_id'], zone_id=res['zone_id'], item_name=success_item_name, 
                     price=res['total_spent'], order_id=final_order_ids, status="success"
                 )
-             
-                safe_ig_name = html.escape(str(res['ig_name']))
-                safe_username = html.escape(str(username_display))
-                safe_item_name = html.escape(str(final_item_name)) 
+
+                report += f"ORDER STATUS : ✅ Success\n"
+                report += f"GAME ID      : {res['game_id']} {res['zone_id']}\n"
+                report += f"IG NAME      : {safe_ig_name}\n"
+                report += f"SERIAL       :\n{res['order_ids_str'].strip()}\n"
+                report += f"ITEM         : {success_item_name} 💎\n"
+                report += f"SPENT        : {res['total_spent']:.2f} 🪙\n\n"
+
+            # မအောင်မြင်သော အပိုင်း (Failed Section)
+            if res['fail_count'] > 0:
+                error_text = str(res['error_msg']).lower()
+                if "insufficient" in error_text or "saldo" in error_text: display_err = "Insufficient balance"
+                elif "query failed" in error_text or "unable to purchase" in error_text or "invalid account" in error_text or "not found" in error_text: display_err = "Ban Server"
+                else: display_err = res['error_msg'].replace('❌', '').strip()
                 
-                report = (
-                    f"<blockquote><pre>{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})\n"
-                    f"=== TRANSACTION REPORT ===\n\n"
-                    f"ORDER STATUS : ✅ SUCCESS\n"
-                    f"GAME ID      : {res['game_id']} {res['zone_id']}\n"
-                    f"IG NAME      : {safe_ig_name}\n"
-                    f"SERIAL       :\n"
-                    f"{res['order_ids_str'].strip()}\n"
-                    f"ITEM         : {safe_item_name}\n"
-                    f"SPENT        : {res['total_spent']:.2f} 🪙\n\n"
-                    f"DATE         : {date_str}\n"
-                    f"USERNAME     : {safe_username}\n"
-                    f"INITIAL      : ${initial_bal_for_receipt:,.2f}\n"
-                    f"FINAL        : ${new_v_bal:,.2f}\n\n"
-                    f"SUCCESS {res['success_count']} / FAIL {res['fail_count']}\n"
-                    f"TIME TAKEN   : {time_taken_seconds} SECONDS</pre></blockquote>"
-                )
-                await message.reply(report, parse_mode=ParseMode.HTML)
+                unique_failed = list(set(res['failed_names_list']))
+                failed_item_name = ", ".join(unique_failed) if unique_failed else res['raw_items_str']
                 
-                if res['fail_count'] > 0: 
-                    await message.reply(f"Only partially successful for {res['game_id']}.\nError: {res['error_msg']}")
-            else:
-                await message.reply(f"❌ Order failed for {res['game_id']} ({res['zone_id']}):\n{res['error_msg']}")
+                report += f"ORDER STATUS : ❌ FAILED\n"
+                report += f"GAME ID      : {res['game_id']} {res['zone_id']}\n"
+                report += f"IG NAME      : {safe_ig_name}\n"
+                report += f"ITEM         : {failed_item_name} 💎\n"
+                report += f"ERROR        : {display_err}\n\n"
+
+            # Footer အပိုင်း (Date, Username, Balances)
+            report += f"DATE         : {date_str}\n"
+            report += f"USERNAME     :\n{safe_username}\n"
+            report += f"INITIAL      : ${initial_bal_for_receipt:,.2f}\n"
+            report += f"FINAL        : ${new_v_bal:,.2f}\n\n"
+            report += f"SUCCESS {res['success_count']} / FAIL {res['fail_count']}\n"
+            report += f"TIME TAKEN   : {time_taken_seconds} SECONDS</pre></blockquote>"
+
+            await message.reply(report, parse_mode=ParseMode.HTML)
 
 @dp.message(F.text.regexp(r"(?i)^(?:msc|mlb|br|b)\s+\d+"))
 async def handle_br_mlbb(message: types.Message):

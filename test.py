@@ -1238,7 +1238,7 @@ async def handle_check_role(message: types.Message):
         csrf_token = meta_tag.get('content') if meta_tag else (soup.find('input', {'name': '_csrf'}).get('value') if soup.find('input', {'name': '_csrf'}) else None)
         if not csrf_token: return await loading_msg.edit_text("❌ CSRF Token not found.")
 
-        # 2. အကောင့်အမည်နှင့် နိုင်ငံကို စစ်ဆေးခြင်း
+        # 2. Checkrole API ကို လှမ်းခေါ်ခြင်း
         role_response_raw = await scraper.post(checkrole_url, data={'user_id': game_id, 'zone_id': zone_id, '_csrf': csrf_token}, headers=headers)
         try: role_result = role_response_raw.json()
         except: return await loading_msg.edit_text("❌ Cannot verify.")
@@ -1263,32 +1263,59 @@ async def handle_check_role(message: types.Message):
 
         final_region = pizzo_region if pizzo_region != "Unknown" else smile_region
 
-        # 3. 🟢 JSON File ထဲမှ အလုပ်လုပ်သည့် "code: 200" ကို တိုက်ရိုက်ရှာ၍ စစ်ဆေးခြင်း 🟢
+        # 3. 🟢 Smile.one Server မှ ပြန်ချပေးသော 'limit_items' (ဝယ်ယူပြီးသားစာရင်း) ကို ဖမ်းယူခြင်း 🟢
+        limit_items = []
+        def extract_limits(data_obj):
+            if isinstance(data_obj, dict):
+                for k, v in data_obj.items():
+                    # 'limit_items' သို့မဟုတ် 'bought_list' စသည့် ကုန်သွားသည့်စာရင်းများကို ရှာဖွေသည်
+                    if k in ['limit_items', 'bought_list', 'bought', 'limits']:
+                        if isinstance(v, list):
+                            limit_items.extend([str(i) for i in v])
+                        elif isinstance(v, str):
+                            limit_items.append(str(v))
+                    else:
+                        extract_limits(v)
+            elif isinstance(data_obj, list):
+                for item in data_obj:
+                    extract_limits(item)
+                    
+        extract_limits(role_result)
+
+        # 4. Double Status စစ်ဆေးခြင်း
         async def check_double_status(pid):
+            # Smile.one က ပြန်ချပေးတဲ့ ကုန်သွားတဲ့စာရင်း (limit_items) ထဲမှာ PID ပါနေရင် သေချာပေါက် 🔴 ပြမည်
+            if str(pid) in limit_items:
+                return "🔴"
+                
+            # သေချာစေရန် Query ပါ ထပ်လှမ်းစစ်ပါမည်
             q_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': pid, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
             try:
                 q_res = await scraper.post(query_url, data=q_data, headers=headers, timeout=10)
                 data = q_res.json()
                 
-                # အစ်ကိုပို့ပေးထားသော JSON အတိုင်း "code" 200 ဖြစ်ပြီး flowid ပါလာမှသာ 🟢 ပြမည်
-                if str(data.get('code')) == '200' and data.get('flowid'):
-                    return "🟢"
-                else:
+                # Flow ID လုံးဝမရရင် ဝယ်မရတဲ့သဘောမို့ 🔴 ပြမည်
+                if not (data.get('flowid') or data.get('data', {}).get('flowid')):
                     return "🔴"
-            except Exception as e:
-                # Rate Limit သို့မဟုတ် Error တက်ပါက 🔴 ပြမည်
+                    
+                # Flow ID ရပေမယ့် change_price 0 ဖြစ်နေရင် (သို့) ရိုးရိုးစျေးဖြစ်သွားရင်
+                if 'change_price' in data and data.get('change_price') == 0:
+                    return "🔴"
+                    
+                return "🟢"
+            except:
                 return "🔴"
 
-        # Rate Limit မဖြစ်စေရန် (0.5 စက္ကန့်) အချိန်ခြားပြီးမှ တစ်ခုချင်းစီ ဆက်တိုက်စစ်မည်
+        # Rate Limit မထိစေရန် တစ်ခုချင်းစီ အချိန်ခဏခြားပြီး စစ်မည်
         d_50 = await check_double_status('22590')
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
         d_150 = await check_double_status('22591')
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
         d_250 = await check_double_status('22592')
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
         d_500 = await check_double_status('22593')
 
-        # 4. Final Output Formatting
+        # 5. Output ပြသခြင်း
         final_report = (
             f"<b>MLBB DIA & MCGG BOT</b>\n\n"
             f"📊 <b>User Details</b>\n\n"

@@ -1292,7 +1292,7 @@ async def handle_check_role(message: types.Message):
             f"🆔 <code>{'User ID' :<9}:</code> <code>{game_id}</code> (<code>{zone_id}</code>)\n"
             f"👤 <code>{'Nickname':<9}:</code> {ig_name}\n"
             f"🌍 <code>{'Region'  :<9}:</code> {final_region}\n"
-            f"───────────────────────\n\n"
+            f"────────────────\n\n"
             f"🎁 <b>Fɪʀsᴛ Rᴇᴄʜᴀʀɢᴇ Bᴏɴᴜs Sᴛᴀᴛᴜs</b>"
         )
 

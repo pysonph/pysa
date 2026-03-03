@@ -820,7 +820,129 @@ async def clean_order_history(message: types.Message):
     if deleted_count > 0: await message.reply(f"🗑️ **History Cleaned Successfully.**\nDeleted {deleted_count} order records from your history.")
     else: await message.reply("📜 **No Order History Found to Clean.**")
 
-for res in line_results:
+async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
+    tg_id = str(message.from_user.id)
+    telegram_user = message.from_user.username
+    username_display = f"@{telegram_user}" if telegram_user else tg_id
+    v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
+    
+    async with user_locks[tg_id]: 
+        parsed_orders = []
+        total_required_price = 0.0
+        
+        for line in lines:
+            line = line.strip()
+            if not line: continue 
+            match = re.search(regex_pattern, line)
+            if not match:
+                await message.reply(f"Invalid format: `{line}`\nCheck /help for correct format.")
+                continue
+                
+            game_id = match.group(1)
+            zone_id = match.group(2)
+            raw_items_str = match.group(3).lower()
+            
+            requested_packages = raw_items_str.split()
+            items_to_buy = []
+            not_found_pkgs = []
+            
+            for pkg in requested_packages:
+                active_packages = None
+                if isinstance(packages_dict, list):
+                    for p_dict in packages_dict:
+                        if pkg in p_dict: 
+                            active_packages = p_dict
+                            break
+                else:
+                    if pkg in packages_dict: 
+                        active_packages = packages_dict
+                        
+                if active_packages: 
+                    items_to_buy.extend(active_packages[pkg])
+                else: 
+                    not_found_pkgs.append(pkg)
+                    
+            if not_found_pkgs:
+                await message.reply(f"❌ Package(s) not found for ID {game_id}: {', '.join(not_found_pkgs)}")
+                continue
+            if not items_to_buy: 
+                continue
+                
+            line_price = sum(item['price'] for item in items_to_buy)
+            total_required_price += line_price
+            parsed_orders.append({
+                'game_id': game_id, 
+                'zone_id': zone_id, 
+                'raw_items_str': raw_items_str, 
+                'items_to_buy': items_to_buy, 
+                'line_price': line_price
+            })
+            
+        if not parsed_orders: 
+            return
+
+        user_wallet = await db.get_reseller(tg_id)
+        user_v_bal = user_wallet.get(v_bal_key, 0.0) if user_wallet else 0.0
+        
+        if user_v_bal < total_required_price:
+            await message.reply(f"Nᴏᴛ ᴇɴᴏᴜɢʜ ᴍᴏɴᴇʏ ɪɴ ʏᴏᴜʀ ᴠ-ᴡᴀʟʟᴇᴛ.\nTotal Nᴇᴇᴅᴇᴅ: {total_required_price} {currency}\nYᴏᴜʀ ʙᴀʟᴀɴᴄᴇ: {user_v_bal} {currency}")
+            return
+            
+        start_time = time.time()
+        loading_msg = await message.reply(f"Order processing[ {len(parsed_orders)} | 0 ] ● ᥫ᭡")
+
+        async def process_order_line(order):
+            game_id = order['game_id']
+            zone_id = order['zone_id']
+            raw_items_str = order['raw_items_str']
+            items_to_buy = order['items_to_buy']
+            
+            success_count, fail_count, total_spent = 0, 0, 0.0
+            order_ids_str, ig_name, error_msg = "", "Unknown", ""
+            actual_names_list = [] 
+            failed_names_list = [] # 🟢 Fail ဖြစ်သွားသော Item များကို မှတ်ထားရန်
+            
+            async with api_semaphore:
+                prev_context = None
+                is_first = True
+                last_success_order = ""
+                
+                for item in items_to_buy:
+                    skip_check = not is_first
+                    res = await process_func(
+                        game_id, zone_id, item['pid'], currency, 
+                        prev_context=prev_context, skip_role_check=skip_check, 
+                        known_ig_name=ig_name, last_success_order_id=last_success_order
+                    )
+                    
+                    if res['status'] == 'success':
+                        success_count += 1
+                        total_spent += item['price']
+                        order_ids_str += f"{res['order_id']}\n"
+                        ig_name = res['ig_name']
+                        actual_names_list.append(item.get('name', raw_items_str))
+                        prev_context = {'csrf_token': res['csrf_token']}
+                        last_success_order = res['order_id']
+                    else:
+                        fail_count += 1
+                        error_msg = res['message']
+                        failed_names_list.append(item.get('name', raw_items_str))
+                        
+                    is_first = False
+                        
+            return {
+                'game_id': game_id, 'zone_id': zone_id, 'raw_items_str': raw_items_str, 
+                'success_count': success_count, 'fail_count': fail_count, 'total_spent': total_spent, 
+                'order_ids_str': order_ids_str, 'ig_name': ig_name, 'error_msg': error_msg, 
+                'actual_names_list': actual_names_list, 'failed_names_list': failed_names_list
+            }
+
+        line_tasks = [process_order_line(order) for order in parsed_orders]
+        line_results = await asyncio.gather(*line_tasks)
+        time_taken_seconds = int(time.time() - start_time)
+        await loading_msg.delete() 
+
+        for res in line_results:
             now = datetime.datetime.now(MMT)
             date_str = now.strftime("%m/%d/%Y, %I:%M:%S %p")
             

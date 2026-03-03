@@ -1223,7 +1223,12 @@ async def handle_check_role(message: types.Message):
     main_url = 'https://www.smile.one/merchant/mobilelegends'
     checkrole_url = 'https://www.smile.one/merchant/mobilelegends/checkrole'
     query_url = 'https://www.smile.one/merchant/mobilelegends/query'
-    headers = {'X-Requested-With': 'XMLHttpRequest', 'Referer': main_url, 'Origin': 'https://www.smile.one'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'X-Requested-With': 'XMLHttpRequest', 
+        'Referer': main_url, 
+        'Origin': 'https://www.smile.one'
+    }
 
     try:
         # 1. CSRF Token ယူခြင်း
@@ -1258,51 +1263,32 @@ async def handle_check_role(message: types.Message):
 
         final_region = pizzo_region if pizzo_region != "Unknown" else smile_region
 
-        # 3. 🟢 SEQUENTIAL CHECK FOR DOUBLE BONUS (Rate Limit ကိုရှောင်ရှားရန်) 🟢
-        async def check_double_status(pid, regular_amount):
+        # 3. 🟢 JSON File ထဲမှ အလုပ်လုပ်သည့် "code: 200" ကို တိုက်ရိုက်ရှာ၍ စစ်ဆေးခြင်း 🟢
+        async def check_double_status(pid):
             q_data = {'user_id': game_id, 'zone_id': zone_id, 'pid': pid, 'checkrole': '', 'pay_methond': 'smilecoin', 'channel_method': 'smilecoin', '_csrf': csrf_token}
             try:
-                q_res = await scraper.post(query_url, data=q_data, headers=headers)
+                q_res = await scraper.post(query_url, data=q_data, headers=headers, timeout=10)
                 data = q_res.json()
                 
-                # Flow ID မရရင် (ဥပမာ - ဝယ်ပြီးသားမို့လို့ Error ပြတာမျိုး) 🔴 ပြမည်
-                flowid = data.get('flowid') or data.get('data', {}).get('flowid')
-                if not flowid:
-                    return "🔴"
-                    
-                # Smile.one ဘက်မှ ပြန်ချပေးမည့် Product Name ကို ဖမ်းယူစစ်ဆေးမည်
-                prod_name = ""
-                if 'data' in data and isinstance(data['data'], dict):
-                    prod_name = data['data'].get('product_name', '') or data['data'].get('goods_name', '') or data['data'].get('title', '')
-                if not prod_name:
-                    prod_name = data.get('product_name', '') or data.get('goods_name', '') or data.get('title', '')
-                    
-                prod_name = str(prod_name).lower()
-                
-                if prod_name:
-                    # နာမည်ထဲမှာ ရိုးရိုး Amount (ဥပမာ 565) ပါနေရင် Double မရတော့ပါ
-                    if str(regular_amount) in prod_name:
-                        return "🔴"
+                # အစ်ကိုပို့ပေးထားသော JSON အတိုင်း "code" 200 ဖြစ်ပြီး flowid ပါလာမှသာ 🟢 ပြမည်
+                if str(data.get('code')) == '200' and data.get('flowid'):
                     return "🟢"
-                    
-                # Name မတွေ့ပါက Raw Text ထဲတွင် ရှာမည်
-                text = q_res.text.lower()
-                if f"{regular_amount}" in text:
+                else:
                     return "🔴"
-                return "🟢"
-            except:
+            except Exception as e:
+                # Rate Limit သို့မဟုတ် Error တက်ပါက 🔴 ပြမည်
                 return "🔴"
 
-        # ပြိုင်တူမလှမ်းဘဲ တစ်ခုပြီးမှတစ်ခု အနည်းငယ် Time Delay ခြား၍ လှမ်းမည်
-        d_50 = await check_double_status('22590', '55')
-        await asyncio.sleep(0.3)
-        d_150 = await check_double_status('22591', '165')
-        await asyncio.sleep(0.3)
-        d_250 = await check_double_status('22592', '275')
-        await asyncio.sleep(0.3)
-        d_500 = await check_double_status('22593', '565')
+        # Rate Limit မဖြစ်စေရန် (0.5 စက္ကန့်) အချိန်ခြားပြီးမှ တစ်ခုချင်းစီ ဆက်တိုက်စစ်မည်
+        d_50 = await check_double_status('22590')
+        await asyncio.sleep(0.5)
+        d_150 = await check_double_status('22591')
+        await asyncio.sleep(0.5)
+        d_250 = await check_double_status('22592')
+        await asyncio.sleep(0.5)
+        d_500 = await check_double_status('22593')
 
-        # 4. Output ထုတ်ပေးခြင်း
+        # 4. Final Output Formatting
         final_report = (
             f"<b>MLBB DIA & MCGG BOT</b>\n\n"
             f"📊 <b>User Details</b>\n\n"

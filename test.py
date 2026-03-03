@@ -1214,6 +1214,7 @@ async def check_cookie_status(message: types.Message):
 async def handle_check_role(message: types.Message):
     import re
     from curl_cffi.requests import AsyncSession
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     match = re.search(r"(?i)^[./]?role\s+(\d+)\s*[\(]?\s*(\d+)\s*[\)]?", message.text.strip())
@@ -1242,7 +1243,6 @@ async def handle_check_role(message: types.Message):
     }
 
     try:
-        # Cookie မပါဘဲ Headers များဖြင့်သာ လှမ်းမည်
         async with AsyncSession(impersonate="chrome120") as local_scraper:
             res = await local_scraper.get(url, params=params, headers=headers, timeout=15)
         
@@ -1251,7 +1251,6 @@ async def handle_check_role(message: types.Message):
         except Exception:
             return await loading_msg.edit_text(f"❌ API Error: Invalid Response.\n\n<code>{res.text[:100]}...</code>", parse_mode=ParseMode.HTML)
 
-        # 1. User Data ဖမ်းယူခြင်း (JSON အသစ်ပုံစံ)
         user_data = data.get('data', {})
         ig_name = user_data.get('username', 'Unknown')
         
@@ -1259,44 +1258,50 @@ async def handle_check_role(message: types.Message):
             return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect or not found.", parse_mode=ParseMode.HTML)
             
         country_code = user_data.get('country', 'Unknown')
-        # နိုင်ငံကုဒ်များကို အမည်အပြည့်အစုံသို့ ပြောင်းပေးမည်
         country_map = {"MM": "Myanmar", "MY": "Malaysia", "PH": "Philippines", "ID": "Indonesia", "BR": "Brazil", "SG": "Singapore", "KH": "Cambodia", "TH": "Thailand"}
         final_region = country_map.get(str(country_code).upper(), country_code)
 
-        # 2. JSON ထဲက data2 -> bonus_limit ကို တိုက်ရိုက်ဖမ်းယူခြင်း
-        d_50 = d_150 = d_250 = d_500 = "🔴" # Default အနေဖြင့် 🔴 ထားမည်
+        # Double Bonus အခြေအနေများကို ဖမ်းယူမည်
+        limit_50 = limit_150 = limit_250 = limit_500 = True # Default (ယူပြီးသားဟု သတ်မှတ်မည်)
         
         bonus_limits = data.get('data2', {}).get('bonus_limit', [])
         for item in bonus_limits:
             title = str(item.get('title', ''))
             reached_limit = item.get('reached_limit', True) 
-            # reached_limit: false ဆိုရင် မယူရသေးဘူး (🟢) | true ဆိုရင် ယူပြီးသွားပြီ (🔴)
-            status_icon = "🔴" if reached_limit else "🟢"
             
-            if "50+50" in title:
-                d_50 = status_icon
-            elif "150+150" in title:
-                d_150 = status_icon
-            elif "250+250" in title:
-                d_250 = status_icon
-            elif "500+500" in title:
-                d_500 = status_icon
+            if "50+50" in title: limit_50 = reached_limit
+            elif "150+150" in title: limit_150 = reached_limit
+            elif "250+250" in title: limit_250 = reached_limit
+            elif "500+500" in title: limit_500 = reached_limit
 
-        # 3. ပုံထဲကအတိုင်း အတိအကျ ပြန်လည်ထုတ်ပေးခြင်း
+        # 🟢 Button များအတွက် "style" အရောင်များကို အစ်ကိုပြောသည့်အတိုင်း သတ်မှတ်မည်
+        # မယူရသေးပါက အစိမ်းရောင် (success), ယူပြီးသားဆိုပါက အနီရောင် (danger)
+        style_50 = "danger" if limit_50 else "success"
+        style_150 = "danger" if limit_150 else "success"
+        style_250 = "danger" if limit_250 else "success"
+        style_500 = "danger" if limit_500 else "success"
+
+        # 🟢 InlineKeyboardMarkup တည်ဆောက်ခြင်း
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="50+50", callback_data="ignore", style=style_50),
+                InlineKeyboardButton(text="150+150", callback_data="ignore", style=style_150)
+            ],
+            [
+                InlineKeyboardButton(text="250+250", callback_data="ignore", style=style_250),
+                InlineKeyboardButton(text="500+500", callback_data="ignore", style=style_500)
+            ]
+        ])
+
         final_report = (
-            f"<b>MLBB DIA & MCGG BOT</b>\n\n"
-            f"📊 <b>User Details</b>\n\n"
+            f"<b>Mobile Legends Bang Bang</b>\n\n"
             f"🆔 User ID: <code>{game_id} ({zone_id})</code>\n"
             f"👤 Nickname: {ig_name}\n"
             f"🌍 Region: {final_region}\n\n"
-            f"🏷 <b>Double Details</b>\n\n"
-            f"📒 Bonus 50: {d_50}\n"
-            f"📗 Bonus 150: {d_150}\n"
-            f"📘 Bonus 250: {d_250}\n"
-            f"📕 Bonus 500: {d_500}"
+            f"🎁 <b>First Recharge Bonus Status:</b>"
         )
 
-        await loading_msg.edit_text(final_report, parse_mode=ParseMode.HTML)
+        await loading_msg.edit_text(final_report, reply_markup=keyboard, parse_mode=ParseMode.HTML)
     except Exception as e: 
         await loading_msg.edit_text(f"❌ System Error: {str(e)}", parse_mode=ParseMode.HTML)
 

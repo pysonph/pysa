@@ -3,38 +3,30 @@ import os
 import re
 import datetime
 import time
-from aiogram.filters import Command, or_f
-from bs4 import BeautifulSoup
 import random
-from dotenv import load_dotenv
 import asyncio
-from playwright.async_api import async_playwright
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram import types
 import html
 from collections import defaultdict
 import concurrent.futures
 
-# 🟢 AsyncSession ကို တိုက်ရိုက် Import လုပ်ခြင်း (အမြန်ဆုံးဖြစ်စေရန်)
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from playwright.async_api import async_playwright
 from curl_cffi.requests import AsyncSession
 
-# 🟢 Aiogram 3 Imports
 from aiogram import Bot, Dispatcher, F, types
 from aiogram import BaseMiddleware
-from aiogram.filters import Command
+from aiogram.filters import Command, or_f
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.types import BufferedInputFile
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
 import database as db
 
-# ==========================================
-# 📌 ENVIRONMENT VARIABLES
-# ==========================================
 load_dotenv()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-OWNER_ID = int(os.getenv('OWNER_ID', 1318826936)) 
+OWNER_ID = int(os.getenv('OWNER_ID', 1318826936))
 FB_EMAIL = os.getenv('FB_EMAIL')
 FB_PASS = os.getenv('FB_PASS')
 
@@ -47,23 +39,16 @@ MMT = datetime.timezone(datetime.timedelta(hours=6, minutes=30))
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# ==========================================
-# 🚀 ADVANCED CONCURRENCY & LOCK SYSTEM
-# ==========================================
 user_locks = defaultdict(asyncio.Lock)
-api_semaphore = asyncio.Semaphore(3) 
-auth_lock = asyncio.Lock()  
+api_semaphore = asyncio.Semaphore(3)
+auth_lock = asyncio.Lock()
 last_login_time = 0
-GLOBAL_SCAMMERS = set()     
+GLOBAL_SCAMMERS = set()
 
-# 🟢 Global Scraper Storage & CSRF CACHE (စက္ကန့်ပိုင်းအတွင်း ပြီးစေရန်)
 GLOBAL_SCRAPER = None
 GLOBAL_COOKIE_STR = ""
 GLOBAL_CSRF = {'mlbb_br': None, 'mlbb_ph': None, 'mcc_br': None, 'mcc_ph': None}
 
-# ==========================================
-# 🍪 MAIN SCRAPER (CURL_CFFI ASYNC SESSION)
-# ==========================================
 async def get_main_scraper():
     global GLOBAL_SCRAPER, GLOBAL_COOKIE_STR, GLOBAL_CSRF
     
@@ -79,14 +64,10 @@ async def get_main_scraper():
                     
         GLOBAL_SCRAPER = AsyncSession(impersonate="chrome120", cookies=cookie_dict)
         GLOBAL_COOKIE_STR = raw_cookie
-        # Cookie အသစ်ပြောင်းပါက CSRF များကို Reset လုပ်ပါမည်
         GLOBAL_CSRF = {'mlbb_br': None, 'mlbb_ph': None, 'mcc_br': None, 'mcc_ph': None}
         
     return GLOBAL_SCRAPER
 
-# ==========================================
-# 🤖 PLAYWRIGHT AUTO-LOGIN
-# ==========================================
 async def auto_login_and_get_cookie():
     global last_login_time, GLOBAL_SCRAPER, GLOBAL_CSRF
     
@@ -96,14 +77,13 @@ async def auto_login_and_get_cookie():
         
     async with auth_lock:
         if time.time() - last_login_time < 120:
-            print("✅ ရှေ့ကလူ Cookie အသစ်ယူပေးသွားလို့ Login ထပ်ဝင်စရာမလိုတော့ပါ။")
             return True
 
         print("Logging in with Facebook to fetch new Cookie...")
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
-                    headless=True, 
+                    headless=True,
                     args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
                 )
                 context = await browser.new_context(
@@ -113,7 +93,7 @@ async def auto_login_and_get_cookie():
                 page = await context.new_page()
                 
                 await page.goto("https://www.smile.one/customer/login")
-                await asyncio.sleep(5) 
+                await asyncio.sleep(5)
                 
                 async with context.expect_page() as popup_info:
                     await page.locator("a.login-btn-facebook, a[href*='facebook.com']").first.click()
@@ -141,7 +121,7 @@ async def auto_login_and_get_cookie():
                     await browser.close()
                     
                     last_login_time = time.time()
-                    GLOBAL_SCRAPER = None 
+                    GLOBAL_SCRAPER = None
                     GLOBAL_CSRF = {'mlbb_br': None, 'mlbb_ph': None, 'mcc_br': None, 'mcc_ph': None}
                     return True
                     
@@ -154,9 +134,6 @@ async def auto_login_and_get_cookie():
             print(f"❌ Error during Auto-Login: {e}")
             return False
 
-# ==========================================
-# 📌 PACKAGES
-# ==========================================
 DOUBLE_DIAMOND_PACKAGES = {
     '55': [{'pid': '22590', 'price': 39.0, 'name': '50+50 💎'}],
     '165': [{'pid': '22591', 'price': 116.9, 'name': '150+150 💎'}],
@@ -199,7 +176,7 @@ BR_PACKAGES = {
     'wp7': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
     'wp8': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
     'wp9': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}],
-   'wp10': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}]
+    'wp10': [{'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}, {'pid': '16642', 'price': 76.0, 'name': 'Weekly Pass'}]
 }
 
 PH_PACKAGES = {
@@ -277,9 +254,6 @@ PH_MCC_PACKAGES = {
     'battlefordiscounts': [{'pid': '25601', 'price': 47.45, 'name': 'battlefordiscounts 💎'}],
 }
 
-# ==========================================
-# 2. FUNCTION TO GET REAL BALANCE 
-# ==========================================
 async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one/customer/order'):
     balances = {'br_balance': 0.00, 'ph_balance': 0.00}
     try:
@@ -306,9 +280,6 @@ async def get_smile_balance(scraper, headers, balance_url='https://www.smile.one
         print(f"Error fetching balance from site: {e}")
     return balances
 
-# ==========================================
-# 3. SMILE.ONE SCRAPER FUNCTION (MLBB) [🚀 ULTRA FAST CACHE]
-# ==========================================
 async def process_smile_one_order(game_id, zone_id, product_id, currency_name, prev_context=None, skip_role_check=False, known_ig_name="Unknown", last_success_order_id=""):
     scraper = await get_main_scraper()
     global GLOBAL_CSRF
@@ -335,7 +306,6 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
     }
 
     try:
-        # 🟢 CSRF ကို Memory ထဲကနေ တိုက်ရိုက်ယူပါမည် (မြန်ဆန်ရန်)
         csrf_token = prev_context.get('csrf_token') if prev_context else GLOBAL_CSRF.get(cache_key)
         ig_name = known_ig_name
 
@@ -375,14 +345,13 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
         if not flowid:
             real_error = query_result.get('msg') or query_result.get('message') or ""
             if "login" in str(real_error).lower() or "unauthorized" in str(real_error).lower():
-                GLOBAL_CSRF[cache_key] = None # Token Expired ဖြစ်ပါက အသစ်ပြန်ယူရန်
+                GLOBAL_CSRF[cache_key] = None
                 await notify_owner("⚠️ <b>Order Alert:</b> Cookie expired. Auto-login started...")
                 success = await auto_login_and_get_cookie()
                 if success: return {"status": "error", "message": "Session renewed. Please try again."}
                 else: return {"status": "error", "message": "❌ Auto-Login failed. Please /setcookie."}
             return {"status": "error", "message": f"❌ Query Failed: {real_error}"}
 
-        # 🟢 🚀 Payment Process (Fast Route)
         pay_data = {'_csrf': csrf_token, 'user_id': game_id, 'zone_id': zone_id, 'pay_methond': 'smilecoin', 'product_id': product_id, 'channel_method': 'smilecoin', 'flowid': flowid, 'email': '', 'coupon_id': ''}
         pay_response_raw = await scraper.post(pay_url, data=pay_data, headers=headers)
         pay_text = pay_response_raw.text.lower()
@@ -410,7 +379,6 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
                 is_success = True
                 real_order_id = f"FAST_{int(time.time())}_{random.randint(100,999)}"
 
-        # 🐢 [Hybrid Fallback]
         if not is_success:
             try:
                 hist_res_raw = await scraper.get(order_api_url, params={'type': 'orderlist', 'p': '1', 'pageSize': '5'}, headers=headers)
@@ -434,7 +402,6 @@ async def process_smile_one_order(game_id, zone_id, product_id, currency_name, p
 
     except Exception as e: return {"status": "error", "message": f"System Error: {str(e)}"}
 
-# 🌟 3.1 MAGIC CHESS SCRAPER FUNCTION [🚀 ULTRA FAST CACHE]
 async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_context=None, skip_role_check=False, known_ig_name="Unknown", last_success_order_id=""):
     scraper = await get_main_scraper()
     global GLOBAL_CSRF
@@ -562,18 +529,12 @@ async def process_mcc_order(game_id, zone_id, product_id, currency_name, prev_co
 
     except Exception as e: return {"status": "error", "message": f"System Error: {str(e)}"}
 
-# ==========================================
-# 4. 🛡️ FUNCTION TO CHECK AUTHORIZATION
-# ==========================================
 async def is_authorized(user_id: int):
     if user_id == OWNER_ID:
         return True
     user = await db.get_reseller(str(user_id))
     return user is not None
 
-# ==========================================
-# 5. RESELLER MANAGEMENT & COMMANDS
-# ==========================================
 @dp.message(or_f(Command("add"), F.text.regexp(r"(?i)^\.add(?:$|\s+)")))
 async def add_reseller(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.reply("You are not the Owner.")
@@ -621,9 +582,6 @@ async def set_cookie_command(message: types.Message):
     GLOBAL_CSRF = {'mlbb_br': None, 'mlbb_ph': None, 'mcc_br': None, 'mcc_ph': None}
     await message.reply("✅ **Main Cookie has been successfully updated securely.**")
 
-# ==========================================
-# 🍪 SMART COOKIE EXTRACTOR FUNCTION
-# ==========================================
 @dp.message(F.text.contains("PHPSESSID") & F.text.contains("cf_clearance"))
 async def handle_smart_cookie_update(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.reply("❌ You are not authorized.")
@@ -654,9 +612,6 @@ async def handle_smart_cookie_update(message: types.Message):
     except Exception as e:
         await message.reply(f"❌ <b>Parsing Error:</b> {str(e)}", parse_mode=ParseMode.HTML)
 
-# ==========================================
-# 💰 MANUAL BALANCE ADDITION / DEDUCTION (OWNER ONLY)
-# ==========================================
 @dp.message(or_f(Command("addbal"), F.text.regexp(r"(?i)^\.addbal(?:$|\s+)")))
 async def add_balance_command(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.reply("❌ You are not authorized.")
@@ -699,9 +654,6 @@ async def deduct_balance_command(message: types.Message):
     new_ph = updated_wallet.get('ph_balance', 0.0)
     await message.reply(f"✅ **Balance Deducted Successfully!**\n\n👤 **User ID:** `{target_id}`\n💸 **Deducted:** `-{amount:,.2f} {currency}`\n\n📊 **Current Balance:**\n🇧🇷 BR: `${new_br:,.2f}`\n🇵🇭 PH: `${new_ph:,.2f}`")
 
-# ==========================================
-# 💳 SMILE CODE TOP-UP COMMAND
-# ==========================================
 @dp.message(F.text.regexp(r"(?i)^\.topup\s+([a-zA-Z0-9]+)"))
 async def handle_topup(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
@@ -818,9 +770,6 @@ async def handle_topup(message: types.Message):
                 msg = (f"✅ <b>Code Top-Up Successful</b>\n\n<code>Code   : {activation_code} ({active_region})\nAmount : {fmt_amount:,}\nFee    : -{fee_amount:.1f} ({fee_percent}%)\nAdded  : +{net_added:,.1f} 🪙\nAssets : {assets:,.1f} 🪙\nTotal  : {total_assets:,.1f} 🪙</code>")
                 await loading_msg.edit_text(msg, parse_mode=ParseMode.HTML)
 
-# ==========================================
-# 💳 BALANCE COMMAND & TOOLS
-# ==========================================
 @dp.message(or_f(Command("balance"), F.text.regexp(r"(?i)^\.bal(?:$|\s+)")))
 async def check_balance_command(message: types.Message):
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
@@ -871,9 +820,6 @@ async def clean_order_history(message: types.Message):
     if deleted_count > 0: await message.reply(f"🗑️ **History Cleaned Successfully.**\nDeleted {deleted_count} order records from your history.")
     else: await message.reply("📜 **No Order History Found to Clean.**")
 
-# ==========================================
-# 🛑 CORE ORDER EXECUTION HELPER 
-# ==========================================
 async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
     tg_id = str(message.from_user.id)
     telegram_user = message.from_user.username
@@ -960,8 +906,6 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 is_first = True
                 last_success_order = ""
                 
-                # 🟢 Item များကို တစ်ခုပြီးမှတစ်ခု (Sequential) အမြန်ဆုံးနည်းဖြင့် ဝယ်ယူမည်
-                # Global CSRF ပါဝင်လာသဖြင့် အချိန်ကြန့်ကြာမှု မရှိတော့ပါ။ (Race Condition ကို လုံးဝကာကွယ်ပြီးဖြစ်သည်)
                 for item in items_to_buy:
                     skip_check = not is_first
                     res = await process_func(
@@ -1026,11 +970,20 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 
                 report = (
                     f"<blockquote><code>{title_prefix} {res['game_id']} ({res['zone_id']}) {res['raw_items_str'].upper()} ({currency})\n"
-                    f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\nᴏʀᴅᴇʀ sᴛᴀᴛᴜs : ✅ Sᴜᴄᴄᴇss\nɢᴀᴍᴇ ɪᴅ      : {res['game_id']} {res['zone_id']}\n"
-                    f"ɪɢ ɴᴀᴍᴇ      : {safe_ig_name}\nsᴇʀɪᴀʟ        :\n{res['order_ids_str'].strip()}\nɪᴛᴇᴍ         : {safe_item_name}\n"
-                    f"sᴘᴇɴᴛ        : {res['total_spent']:.2f} 🪙\n\nᴅᴀᴛᴇ         : {date_str}\nᴜsᴇʀɴᴀᴍᴇ      : {safe_username}\n"
-                    f"ɪɴɪᴛɪᴀʟ      : ${initial_bal_for_receipt:,.2f}\nғɪɴᴀʟ        : ${new_v_bal:,.2f}\n\n"
-                    f"Sᴜᴄᴄᴇss {res['success_count']} / Fᴀɪʟ {res['fail_count']}\nTɪᴍᴇ ᴛᴀᴋᴇɴ   : {time_taken_seconds} sᴇᴄᴏɴᴅs</code></blockquote>"
+                    f"=== ᴛʀᴀɴsᴀᴄᴛɪᴏɴ ʀᴇᴘᴏʀᴛ ===\n\n"
+                    f"{'ᴏʀᴅᴇʀ sᴛᴀᴛᴜs':<13}: ✅ Sᴜᴄᴄᴇss\n"
+                    f"{'ɢᴀᴍᴇ ɪᴅ':<13}: {res['game_id']} {res['zone_id']}\n"
+                    f"{'ɪɢ ɴᴀᴍᴇ':<13}: {safe_ig_name}\n"
+                    f"{'sᴇʀɪᴀʟ':<13}:\n"
+                    f"{res['order_ids_str'].strip()}\n"
+                    f"{'ɪᴛᴇᴍ':<13}: {safe_item_name}\n"
+                    f"{'sᴘᴇɴᴛ':<13}: {res['total_spent']:.2f} 🪙\n\n"
+                    f"{'ᴅᴀᴛᴇ':<13}: {date_str}\n"
+                    f"{'ᴜsᴇʀɴᴀᴍᴇ':<13}: {safe_username}\n"
+                    f"{'ɪɴɪᴛɪᴀʟ':<13}: ${initial_bal_for_receipt:,.2f}\n"
+                    f"{'ғɪɴᴀʟ':<13}: ${new_v_bal:,.2f}\n\n"
+                    f"Sᴜᴄᴄᴇss {res['success_count']} / Fᴀɪʟ {res['fail_count']}\n"
+                    f"{'Tɪᴍᴇ ᴛᴀᴋᴇɴ':<13}: {time_taken_seconds} sᴇᴄᴏɴᴅs</code></blockquote>"
                 )
                 await message.reply(report, parse_mode=ParseMode.HTML)
                 
@@ -1039,9 +992,6 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             else:
                 await message.reply(f"❌ Order failed for {res['game_id']} ({res['zone_id']}):\n{res['error_msg']}")
 
-# ==========================================
-# 💎 PURCHASE COMMAND HANDLERS
-# ==========================================
 @dp.message(F.text.regexp(r"(?i)^(?:msc|mlb|br|b)\s+\d+"))
 async def handle_br_mlbb(message: types.Message):
     if not await is_authorized(message.from_user.id): 
@@ -1122,9 +1072,6 @@ async def handle_ph_mcc(message: types.Message):
     except Exception as e: 
         await message.reply(f"System Error: {str(e)}")
 
-# ==========================================
-# 📜 PRICE LIST COMMANDS
-# ==========================================
 def generate_list(package_dict):
     lines = []
     for key, items in package_dict.items():
@@ -1150,9 +1097,6 @@ async def show_price_list_mcc(message: types.Message):
     response_text = f"🇧🇷 <b>𝙈𝘾𝘾 𝙋𝘼𝘾𝙆𝘼𝙂𝙀𝙎</b>\n<code>{generate_list(MCC_PACKAGES)}</code>\n\n🇵🇭 <b>𝙋𝙝 𝙈𝘾𝘾 𝙋𝙖𝙘𝙠𝙖𝙜𝙚𝙨</b>\n<code>{generate_list(PH_MCC_PACKAGES)}</code>"
     await message.reply(response_text, parse_mode=ParseMode.HTML)
 
-# ==========================================
-# 🧮 SMART CALCULATOR FUNCTION
-# ==========================================
 @dp.message(F.text.regexp(r"^[\d\s\.\(\)]+[\+\-\*\/][\d\s\+\-\*\/\(\)\.]+$"))
 async def auto_calculator(message: types.Message):
     try:
@@ -1165,9 +1109,6 @@ async def auto_calculator(message: types.Message):
         await message.reply(f"{expr} = {formatted_result}")
     except Exception: pass
 
-# ==========================================
-# 10. HEARTBEAT FUNCTION
-# ==========================================
 async def keep_cookie_alive():
     while True:
         try:
@@ -1257,9 +1198,6 @@ async def notify_owner(text: str):
     try: await bot.send_message(chat_id=OWNER_ID, text=text, parse_mode=ParseMode.HTML)
     except Exception as e: print(f" Owner ထံသို့ Message ပို့၍မရပါ: {e}")
 
-# ==========================================
-# 🍪 CHECK COOKIE STATUS COMMAND
-# ==========================================
 @dp.message(or_f(Command("cookies"), F.text.regexp(r"(?i)^\.cookies$")))
 async def check_cookie_status(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.reply("❌ You are not authorized.")
@@ -1318,9 +1256,6 @@ async def handle_check_role(message: types.Message):
         await loading_msg.edit_text(f"ɢᴀᴍᴇ ɪᴅ : {game_id} ({zone_id})\nɪɢɴ ɴᴀᴍᴇ : {ig_name}\nʀᴇɢɪᴏɴ : {final_region}")
     except Exception as e: await loading_msg.edit_text(f"❌ System Error: {str(e)}")
 
-# ==========================================
-# 🔍 DISPUTE & VERIFICATION COMMAND (.cus)
-# ==========================================
 @dp.message(or_f(Command("checkcus"), Command("cus"), F.text.regexp(r"(?i)^\.(?:checkcus|cus)(?:$|\s+)")))
 async def check_official_customer(message: types.Message):
     tg_id = str(message.from_user.id)
@@ -1384,9 +1319,6 @@ async def check_official_customer(message: types.Message):
             date_str = str(order.get('created_at') or order.get('updated_at') or order.get('create_time') or '')
             currency_sym = str(order.get('total_fee_currency') or '$')
             
-            # 🟢 [အသစ်ပြင်ဆင်ထားသော အချိန်တွက်ချက်မှု] 
-            # Smile.one API သည် နိုင်ငံမရွေး Brazil (GMT-3) ဖြင့်သာ ပုံသေသိမ်းပါသည်။
-            # ထို့ကြောင့် မြန်မာစံတော်ချိန် (MMT: GMT+6:30) သို့ ပြောင်းရန် (9 နာရီခွဲ) တိတိ ပေါင်းရပါမည်။
             date_display = date_str
             if date_str:
                 try:
@@ -1440,9 +1372,6 @@ async def check_official_customer(message: types.Message):
     except Exception as e: 
         await loading_msg.edit_text(f"❌ Search Error: {str(e)}", parse_mode=ParseMode.HTML)
 
-# ==========================================
-# 👑 VIP & TOP CUSTOMER COMMANDS
-# ==========================================
 @dp.message(or_f(Command("topcus"), F.text.regexp(r"(?i)^\.topcus$")))
 async def show_top_customers(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.reply("❌ Only Owner.")
@@ -1476,9 +1405,6 @@ async def grant_vip_status(message: types.Message):
     status_msg = "Granted 🌟" if new_status else "Revoked ❌"
     await message.reply(f"✅ VIP Status for `{target_id}` has been **{status_msg}**.")
 
-# ==========================================
-# 🏦 SYSTEM BALANCE CHECK
-# ==========================================
 @dp.message(or_f(Command("sysbal"), F.text.regexp(r"(?i)^\.sysbal$")))
 async def check_system_balance(message: types.Message):
     if message.from_user.id != OWNER_ID: return await message.reply("❌ You are not authorized.")
@@ -1495,9 +1421,6 @@ async def check_system_balance(message: types.Message):
         await loading_msg.edit_text(report, parse_mode=ParseMode.HTML)
     except Exception as e: await loading_msg.edit_text(f"❌ Error calculating system balance: {e}")
 
-# ==========================================
-# 📋 AUTO FORMAT & COPY BUTTON 
-# ==========================================
 @dp.message(or_f(F.text.regexp(r"^\d{7,}(?:\s+\(?\d+\)?)?\s*.*$"), F.caption.regexp(r"^\d{7,}(?:\s+\(?\d+\)?)?\s*.*$")))
 async def format_and_copy_text(message: types.Message):
     raw_text = (message.text or message.caption).strip()
@@ -1542,24 +1465,17 @@ async def format_and_copy_text(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[copy_btn]])
     await message.reply(formatted_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
-
-# ==========================================
-# 🚨 1. SCAMMER ALERT MIDDLEWARE (INTERCEPTOR)
-# ==========================================
 class ScamAlertMiddleware(BaseMiddleware):
     async def __call__(self, handler, event: types.Message, data: dict):
         if event.text:
             text_lower = event.text.lower()
             
-            # 🟢 Owner က .scam / .unscam ဖြင့် စာရင်းသွင်း/ဖြုတ် နေချိန်တွင် Alert မပြစေရန် ရှောင်ပေးမည်
             if text_lower.startswith(".scam ") or text_lower.startswith(".unscam ") or text_lower.startswith("/scam") or text_lower.startswith("/unscam"):
                 return await handler(event, data)
                 
-            # ဝင်လာတဲ့ စာသားတိုင်းမှာ Scammer ID ပါ/မပါ စစ်ဆေးမည်
             for scam_id in GLOBAL_SCAMMERS:
                 pattern = rf"\b{scam_id}\b"
                 if re.search(pattern, event.text):
-                    # Scammer ID တွေ့ပါက သတိပေး Message ပြမည်
                     await event.reply(
                         "🚨 <b>Scamer game id , Scamer Alert</b> 🚨",
                         parse_mode=ParseMode.HTML
@@ -1567,9 +1483,6 @@ class ScamAlertMiddleware(BaseMiddleware):
                     break 
         return await handler(event, data)
 
-# ==========================================
-# 🚨 2. SCAMMER MANAGEMENT COMMANDS (OWNER ONLY)
-# ==========================================
 @dp.message(or_f(Command("scam"), F.text.regexp(r"(?i)^\.scam(?:$|\s+)")))
 async def add_scam_id(message: types.Message):
     if message.from_user.id != OWNER_ID: 
@@ -1583,7 +1496,6 @@ async def add_scam_id(message: types.Message):
     if not scam_id.isdigit():
         return await message.reply("❌ Invalid Game ID. ဂဏန်းများသာ ရိုက်ထည့်ပါ။")
         
-    # Database နှင့် Memory ထဲသို့ ထည့်သွင်းမည်
     await db.add_scammer(scam_id)
     GLOBAL_SCAMMERS.add(scam_id)
     
@@ -1600,7 +1512,6 @@ async def remove_scam_id(message: types.Message):
         
     scam_id = parts[1].strip()
     
-    # Database နှင့် Memory ထဲမှ ဖယ်ရှားမည်
     removed = await db.remove_scammer(scam_id)
     GLOBAL_SCAMMERS.discard(scam_id)
     
@@ -1620,10 +1531,6 @@ async def show_scam_list(message: types.Message):
     scam_text = "\n".join([f"🔸 <code>{sid}</code>" for sid in GLOBAL_SCAMMERS])
     await message.reply(f"🚨 **Scammer Blacklist (Total: {len(GLOBAL_SCAMMERS)}):**\n\n{scam_text}", parse_mode=ParseMode.HTML)
 
-
-# ==========================================
-# ℹ️ HELP & START COMMANDS
-# ==========================================
 @dp.message(or_f(Command("help"), F.text.regexp(r"(?i)^\.help$")))
 async def send_help_message(message: types.Message):
     is_owner = (message.from_user.id == OWNER_ID)
@@ -1668,9 +1575,6 @@ async def send_welcome(message: types.Message):
         fallback_text = (f"ʜᴇʏ ʙᴀʙʏ 🥺\n\n👤 Usᴇʀɴᴀᴍᴇ: {full_name}\n🆔 𝐈𝐃: <code>{tg_id}</code>\n📊 Sᴛᴀᴛᴜs: 🔴 Nᴏᴛ Aᴄᴛɪᴠᴇ\n\n📞 Cᴏɴᴛᴀᴄᴛ ᴜs: @iwillgoforwardsalone")
         await message.reply(fallback_text, parse_mode=ParseMode.HTML)
 
-# ==========================================
-# 10. MAIN RUN EXECUTION
-# ==========================================
 async def main():
     print("Starting Heartbeat & Auto-login tasks...")
     print("နှလုံးသားမပါရင် ဘယ်အရာမှတရားမဝင်")
@@ -1678,7 +1582,6 @@ async def main():
     loop = asyncio.get_running_loop()
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=50))
     
-    # 🟢 (၁) Scammer List ကို Database မှ ဆွဲယူပြီး Memory တွင် မှတ်ထားမည်
     global GLOBAL_SCAMMERS
     try:
         scammer_list = await db.get_all_scammers()
@@ -1687,7 +1590,6 @@ async def main():
     except Exception as e:
         print(f"Error loading scammers: {e}")
 
-    # 🟢 (၂) Message အားလုံးကို ဖမ်းယူစစ်ဆေးမည့် Middleware ကို ချိတ်ဆက်မည်
     dp.message.middleware(ScamAlertMiddleware())
     
     asyncio.create_task(keep_cookie_alive())

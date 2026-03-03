@@ -1,7 +1,6 @@
 import io
 import os
 import re
-import json
 import datetime
 import time
 import random
@@ -1213,7 +1212,9 @@ async def check_cookie_status(message: types.Message):
 
 @dp.message(or_f(Command("role"), F.text.regexp(r"(?i)^\.role(?:$|\s+)")))
 async def handle_check_role(message: types.Message):
-    import json # JSON ကို အပေါ်ဆုံးမှာ ခေါ်ထားပါမည်
+    import json
+    import re
+    from curl_cffi.requests import AsyncSession
     
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     match = re.search(r"(?i)^[./]?role\s+(\d+)\s*[\(]?\s*(\d+)\s*[\)]?", message.text.strip())
@@ -1222,17 +1223,12 @@ async def handle_check_role(message: types.Message):
     game_id, zone_id = match.group(1).strip(), match.group(2).strip()
     loading_msg = await message.reply("🔍 <b>Checking via Official API...</b>", parse_mode=ParseMode.HTML)
 
-    scraper = await get_main_scraper()
-    
     url = 'https://coldofficialstore.com/api/name-checker/mlbb'
     params = {
         'user_id': game_id,
         'server_id': zone_id,
     }
     
-    cookies = {
-        'connect.sid': 's%3Apwvynle8o6kOS0mIYBnISiEHIuP5v-Kv.8GZooUmfYNyKvAMwY5vhddgOmtC6LCuhB58RiF2DsY0',
-    }
     headers = {
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
@@ -1247,7 +1243,9 @@ async def handle_check_role(message: types.Message):
     }
 
     try:
-        res = await scraper.get(url, params=params, cookies=cookies, headers=headers, timeout=15)
+        # 🟢 Cookie မပါဘဲ Headers များဖြင့်သာ လှမ်းမည်
+        async with AsyncSession(impersonate="chrome120") as local_scraper:
+            res = await local_scraper.get(url, params=params, headers=headers, timeout=15)
         
         try:
             data = res.json()
@@ -1262,15 +1260,15 @@ async def handle_check_role(message: types.Message):
             
         final_region = info.get('country', info.get('region', info.get('countryCode', 'Unknown')))
 
+        # Double Bonus အခြေအနေကို ရှာဖွေစစ်ဆေးခြင်း
         json_dump = json.dumps(data).lower()
         
-        # 🟢 ပုံထဲကအတိုင်း ✅ Bonus Available နဲ့ ❌ Bonus Used ပြောင်းပေးထားသည်
         def get_bonus_status(amt):
             def search_dict(d):
                 if isinstance(d, dict):
                     for k, v in d.items():
-                        key_str = str(k).lower()
-                        if key_str == str(amt) or key_str == f"{amt}+{amt}" or key_str == f"bonus_{amt}":
+                        k_str = str(k).lower()
+                        if str(amt) in k_str.split('_') or k_str == str(amt) or k_str == f"{amt}+{amt}":
                             return v
                         if isinstance(v, (dict, list)):
                             res = search_dict(v)
@@ -1290,11 +1288,14 @@ async def handle_check_role(message: types.Message):
                     if 'used' in vl or 'false' in vl or 'no' in vl or '0' == vl: return "❌ Bonus Used"
                     return "✅ Bonus Available"
                     
-            p_false = rf'"{amt}(?:\+{amt})?"\s*:\s*(?:false|0|"used"|"[^"]*used[^"]*")'
-            p_true = rf'"{amt}(?:\+{amt})?"\s*:\s*(?:true|1|"available"|"[^"]*available[^"]*")'
+            p_used = rf'["\']?[a-z_]*{amt}(?:\+{amt})?["\']?\s*:\s*(?:false|0|"used"|"no")'
+            p_avail = rf'["\']?[a-z_]*{amt}(?:\+{amt})?["\']?\s*:\s*(?:true|1|"available"|"avail"|"yes")'
             
-            if re.search(p_false, json_dump): return "❌ Bonus Used"
-            if re.search(p_true, json_dump): return "✅ Bonus Available"
+            if re.search(p_used, json_dump): return "❌ Bonus Used"
+            if re.search(p_avail, json_dump): return "✅ Bonus Available"
+            
+            if re.search(rf'{amt}.{{0,25}}used', json_dump) or re.search(rf'{amt}.{{0,25}}false', json_dump): return "❌ Bonus Used"
+            if re.search(rf'{amt}.{{0,25}}avail', json_dump) or re.search(rf'{amt}.{{0,25}}true', json_dump): return "✅ Bonus Available"
             
             return "❓ Unknown"
 
@@ -1303,7 +1304,6 @@ async def handle_check_role(message: types.Message):
         d_250 = get_bonus_status('250')
         d_500 = get_bonus_status('500')
 
-        # 🟢 ပုံစံကို Web UI အတိုင်း သပ်ရပ်အောင် ပြင်ဆင်ထားသည်
         final_report = (
             f"<blockquote>👤 <b>Username:</b> {ig_name}\n\n"
             f"🆔 <b>User ID:</b> <code>{game_id}</code>\n\n"

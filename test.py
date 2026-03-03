@@ -1212,6 +1212,9 @@ async def check_cookie_status(message: types.Message):
 
 @dp.message(or_f(Command("role"), F.text.regexp(r"(?i)^\.role(?:$|\s+)")))
 async def handle_check_role(message: types.Message):
+    import re
+    from curl_cffi.requests import AsyncSession
+    
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     match = re.search(r"(?i)^[./]?role\s+(\d+)\s*[\(]?\s*(\d+)\s*[\)]?", message.text.strip())
     if not match: return await message.reply("❌ Invalid format. Use: `.role 12345678 1234`")
@@ -1219,19 +1222,12 @@ async def handle_check_role(message: types.Message):
     game_id, zone_id = match.group(1).strip(), match.group(2).strip()
     loading_msg = await message.reply("🔍 <b>Checking via Official API...</b>", parse_mode=ParseMode.HTML)
 
-    scraper = await get_main_scraper()
-    
-    # အစ်ကိုပေးထားသော API အသစ်
     url = 'https://coldofficialstore.com/api/name-checker/mlbb'
     params = {
         'user_id': game_id,
         'server_id': zone_id,
     }
     
-    # API အတွက် လိုအပ်သော Cookies နှင့် Headers များ
-    cookies = {
-        'connect.sid': 's%3Apwvynle8o6kOS0mIYBnISiEHIuP5v-Kv.8GZooUmfYNyKvAMwY5vhddgOmtC6LCuhB58RiF2DsY0',
-    }
     headers = {
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.9',
@@ -1246,70 +1242,47 @@ async def handle_check_role(message: types.Message):
     }
 
     try:
-        # API သို့ လှမ်းခေါ်ခြင်း
-        res = await scraper.get(url, params=params, cookies=cookies, headers=headers, timeout=15)
+        # Cookie မပါဘဲ Headers များဖြင့်သာ လှမ်းမည်
+        async with AsyncSession(impersonate="chrome120") as local_scraper:
+            res = await local_scraper.get(url, params=params, headers=headers, timeout=15)
         
         try:
             data = res.json()
         except Exception:
-            return await loading_msg.edit_text(f"❌ API Error: Invalid Response.\n\n<code>{res.text[:100]}...</code>")
+            return await loading_msg.edit_text(f"❌ API Error: Invalid Response.\n\n<code>{res.text[:100]}...</code>", parse_mode=ParseMode.HTML)
 
-        # 1. အကောင့်အမည်နှင့် နိုင်ငံကို ထုတ်ယူခြင်း
-        info = data.get('data', data) if isinstance(data, dict) else data
-        ig_name = info.get('username', info.get('name', info.get('nickname', info.get('userName', 'Unknown'))))
+        # 1. User Data ဖမ်းယူခြင်း (JSON အသစ်ပုံစံ)
+        user_data = data.get('data', {})
+        ig_name = user_data.get('username', 'Unknown')
         
         if not ig_name or str(ig_name).strip() == "" or ig_name == 'Unknown':
-            return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect or not found.")
+            return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect or not found.", parse_mode=ParseMode.HTML)
             
-        final_region = info.get('country', info.get('region', info.get('countryCode', 'Unknown')))
+        country_code = user_data.get('country', 'Unknown')
+        # နိုင်ငံကုဒ်များကို အမည်အပြည့်အစုံသို့ ပြောင်းပေးမည်
+        country_map = {"MM": "Myanmar", "MY": "Malaysia", "PH": "Philippines", "ID": "Indonesia", "BR": "Brazil", "SG": "Singapore", "KH": "Cambodia", "TH": "Thailand"}
+        final_region = country_map.get(str(country_code).upper(), country_code)
 
-        # 2. Double Bonus Status အတိအကျ စစ်ဆေးခြင်း
-        import json
-        import re
-        json_dump = json.dumps(data).lower()
+        # 2. JSON ထဲက data2 -> bonus_limit ကို တိုက်ရိုက်ဖမ်းယူခြင်း
+        d_50 = d_150 = d_250 = d_500 = "🔴" # Default အနေဖြင့် 🔴 ထားမည်
         
-        def get_bonus_status(amt):
-            # ပထမနည်း- Dictionary ထဲတွင် တိုက်ရိုက်ရှာဖွေခြင်း
-            def search_dict(d):
-                if isinstance(d, dict):
-                    for k, v in d.items():
-                        key_str = str(k).lower()
-                        # Key နာမည် 50, 50+50 စသည်ဖြင့် ပါဝင်ပါက
-                        if key_str == str(amt) or key_str == f"{amt}+{amt}" or key_str == f"bonus_{amt}":
-                            return v
-                        if isinstance(v, (dict, list)):
-                            res = search_dict(v)
-                            if res is not None: return res
-                elif isinstance(d, list):
-                    for item in d:
-                        res = search_dict(item)
-                        if res is not None: return res
-                return None
-                
-            val = search_dict(info)
-            if val is not None:
-                if isinstance(val, bool): return "🟢" if val else "🔴"
-                if isinstance(val, int): return "🟢" if val == 1 else "🔴"
-                if isinstance(val, str):
-                    vl = val.lower()
-                    if 'used' in vl or 'false' in vl or 'no' in vl or '0' == vl: return "🔴"
-                    return "🟢"
-                    
-            # ဒုတိယနည်း- JSON Raw စာသားထဲတွင် Regex ဖြင့် အတိအကျ ဖမ်းယူခြင်း (Fail Safe)
-            p_false = rf'"{amt}(?:\+{amt})?"\s*:\s*(?:false|0|"used"|"[^"]*used[^"]*")'
-            p_true = rf'"{amt}(?:\+{amt})?"\s*:\s*(?:true|1|"available"|"[^"]*available[^"]*")'
+        bonus_limits = data.get('data2', {}).get('bonus_limit', [])
+        for item in bonus_limits:
+            title = str(item.get('title', ''))
+            reached_limit = item.get('reached_limit', True) 
+            # reached_limit: false ဆိုရင် မယူရသေးဘူး (🟢) | true ဆိုရင် ယူပြီးသွားပြီ (🔴)
+            status_icon = "🔴" if reached_limit else "🟢"
             
-            if re.search(p_false, json_dump): return "🔴"
-            if re.search(p_true, json_dump): return "🟢"
-            
-            return "❓"
+            if "50+50" in title:
+                d_50 = status_icon
+            elif "150+150" in title:
+                d_150 = status_icon
+            elif "250+250" in title:
+                d_250 = status_icon
+            elif "500+500" in title:
+                d_500 = status_icon
 
-        d_50 = get_bonus_status('50')
-        d_150 = get_bonus_status('150')
-        d_250 = get_bonus_status('250')
-        d_500 = get_bonus_status('500')
-
-        # 3. Output ဖော်ပြခြင်း
+        # 3. ပုံထဲကအတိုင်း အတိအကျ ပြန်လည်ထုတ်ပေးခြင်း
         final_report = (
             f"<b>MLBB DIA & MCGG BOT</b>\n\n"
             f"📊 <b>User Details</b>\n\n"
@@ -1325,7 +1298,7 @@ async def handle_check_role(message: types.Message):
 
         await loading_msg.edit_text(final_report, parse_mode=ParseMode.HTML)
     except Exception as e: 
-        await loading_msg.edit_text(f"❌ System Error: {str(e)}")
+        await loading_msg.edit_text(f"❌ System Error: {str(e)}", parse_mode=ParseMode.HTML)
 
 @dp.message(or_f(Command("checkcus"), Command("cus"), F.text.regexp(r"(?i)^\.(?:checkcus|cus)(?:$|\s+)")))
 async def check_official_customer(message: types.Message):

@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import json
 import datetime
 import time
 import random
@@ -1212,6 +1213,8 @@ async def check_cookie_status(message: types.Message):
 
 @dp.message(or_f(Command("role"), F.text.regexp(r"(?i)^\.role(?:$|\s+)")))
 async def handle_check_role(message: types.Message):
+    import json # JSON ကို အပေါ်ဆုံးမှာ ခေါ်ထားပါမည်
+    
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     match = re.search(r"(?i)^[./]?role\s+(\d+)\s*[\(]?\s*(\d+)\s*[\)]?", message.text.strip())
     if not match: return await message.reply("❌ Invalid format. Use: `.role 12345678 1234`")
@@ -1259,8 +1262,6 @@ async def handle_check_role(message: types.Message):
             
         final_region = info.get('country', info.get('region', info.get('countryCode', 'Unknown')))
 
-        import json
-        import re
         json_dump = json.dumps(data).lower()
         
         # 🟢 ပုံထဲကအတိုင်း ✅ Bonus Available နဲ့ ❌ Bonus Used ပြောင်းပေးထားသည်

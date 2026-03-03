@@ -1212,16 +1212,13 @@ async def check_cookie_status(message: types.Message):
 
 @dp.message(or_f(Command("role"), F.text.regexp(r"(?i)^\.role(?:$|\s+)")))
 async def handle_check_role(message: types.Message):
-    import re
-    from curl_cffi.requests import AsyncSession
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    
+
     if not await is_authorized(message.from_user.id): return await message.reply("ɴᴏᴛ ᴀᴜᴛʜᴏʀɪᴢᴇᴅ ᴜsᴇʀ.")
     match = re.search(r"(?i)^[./]?role\s+(\d+)\s*[\(]?\s*(\d+)\s*[\)]?", message.text.strip())
     if not match: return await message.reply("❌ Invalid format. Use: `.role 12345678 1234`")
     
     game_id, zone_id = match.group(1).strip(), match.group(2).strip()
-    loading_msg = await message.reply("🔍 <b>Checking via Official API...</b>", parse_mode=ParseMode.HTML)
+    loading_msg = await message.reply("Checking region", parse_mode=ParseMode.HTML)
 
     url = 'https://coldofficialstore.com/api/name-checker/mlbb'
     params = {
@@ -1261,8 +1258,7 @@ async def handle_check_role(message: types.Message):
         country_map = {"MM": "Myanmar", "MY": "Malaysia", "PH": "Philippines", "ID": "Indonesia", "BR": "Brazil", "SG": "Singapore", "KH": "Cambodia", "TH": "Thailand"}
         final_region = country_map.get(str(country_code).upper(), country_code)
 
-        # Double Bonus အခြေအနေများကို ဖမ်းယူမည်
-        limit_50 = limit_150 = limit_250 = limit_500 = True # Default (ယူပြီးသားဟု သတ်မှတ်မည်)
+        limit_50 = limit_150 = limit_250 = limit_500 = True 
         
         bonus_limits = data.get('data2', {}).get('bonus_limit', [])
         for item in bonus_limits:
@@ -1274,31 +1270,30 @@ async def handle_check_role(message: types.Message):
             elif "250+250" in title: limit_250 = reached_limit
             elif "500+500" in title: limit_500 = reached_limit
 
-        # 🟢 Button များအတွက် "style" အရောင်များကို အစ်ကိုပြောသည့်အတိုင်း သတ်မှတ်မည်
-        # မယူရသေးပါက အစိမ်းရောင် (success), ယူပြီးသားဆိုပါက အနီရောင် (danger)
         style_50 = "danger" if limit_50 else "success"
         style_150 = "danger" if limit_150 else "success"
         style_250 = "danger" if limit_250 else "success"
         style_500 = "danger" if limit_500 else "success"
 
-        # 🟢 InlineKeyboardMarkup တည်ဆောက်ခြင်း
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="50+50", callback_data="ignore", style=style_50),
-                InlineKeyboardButton(text="150+150", callback_data="ignore", style=style_150)
+                InlineKeyboardButton(text="Bᴏɴᴜs 50+50", callback_data="ignore", style=style_50),
+                InlineKeyboardButton(text="Bᴏɴᴜs 150+150", callback_data="ignore", style=style_150)
             ],
             [
-                InlineKeyboardButton(text="250+250", callback_data="ignore", style=style_250),
-                InlineKeyboardButton(text="500+500", callback_data="ignore", style=style_500)
+                InlineKeyboardButton(text="Bᴏɴᴜs 250+250", callback_data="ignore", style=style_250),
+                InlineKeyboardButton(text="Bᴏɴᴜs 500+500", callback_data="ignore", style=style_500)
             ]
         ])
 
+        # 🟢 အထက်အောက် ညီသွားစေရန် <code> tag နှင့် Space ကိုအသုံးပြု၍ ညှိပေးထားသည်
         final_report = (
-            f"<b>Mobile Legends Bang Bang</b>\n\n"
-            f"🆔 User ID: <code>{game_id} ({zone_id})</code>\n"
-            f"👤 Nickname: {ig_name}\n"
-            f"🌍 Region: {final_region}\n\n"
-            f"🎁 <b>First Recharge Bonus Status:</b>"
+            f"<u><b>Mᴏʙɪʟᴇ Lᴇɢᴇɴᴅs Bᴀɴɢ Bᴀɴɢ</b></u>\n\n"
+            f"🆔 <code>{'User ID' :<9}:</code> <code>{game_id}</code> (<code>{zone_id}</code>)\n"
+            f"👤 <code>{'Nickname':<9}:</code> {ig_name}\n"
+            f"🌍 <code>{'Region'  :<9}:</code> {final_region}\n"
+            f"───────────────────────\n\n"
+            f"🎁 <b>Fɪʀsᴛ Rᴇᴄʜᴀʀɢᴇ Bᴏɴᴜs Sᴛᴀᴛᴜs</b>"
         )
 
         await loading_msg.edit_text(final_report, reply_markup=keyboard, parse_mode=ParseMode.HTML)

@@ -992,7 +992,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 report += f"GAME ID      : {res['game_id']} {res['zone_id']}\n"
                 report += f"IG NAME      : {safe_ig_name}\n"
                 report += f"SERIAL       :\n{res['order_ids_str'].strip()}\n"
-                report += f"ITEM         : {success_item_name} 💎\n"
+                report += f"ITEM         : {success_item_name} \n"
                 report += f"SPENT        : {res['total_spent']:.2f} 🪙\n\n"
 
             # မအောင်မြင်သော အပိုင်း (Failed Section)
@@ -1007,8 +1007,8 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
                 
                 report += f"ORDER STATUS : ❌ FAILED\n"
                 report += f"GAME ID      : {res['game_id']} {res['zone_id']}\n"
-                report += f"IG NAME      : {safe_ig_name}\n"
-                report += f"ITEM         : {failed_item_name} 💎\n"
+                report += f"IG NAME      : {safe_ig_name} \n"
+                report += f"ITEM         : {failed_item_name}\n"
                 report += f"ERROR        : {display_err}\n\n"
 
             # Footer အပိုင်း (Date, Username, Balances)

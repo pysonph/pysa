@@ -868,6 +868,10 @@ async def clean_order_history(message: types.Message):
 async def execute_buy_process(message, lines, regex_pattern, currency, packages_dict, process_func, title_prefix, is_mcc=False):
     tg_id = str(message.from_user.id)
     telegram_user = message.from_user.username
+    if telegram_user:
+        user_link = f'<a href="https://t.me/{telegram_user}">@{telegram_user}</a>'
+    else:
+        user_link = f'<a href="tg://user?id={tg_id}">{tg_id}</a>'
     username_display = f"@{telegram_user}" if telegram_user else tg_id
     v_bal_key = 'br_balance' if currency == 'BR' else 'ph_balance'
     
@@ -1077,7 +1081,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
             header_title = f"{title_prefix} BATCH ORDERS ({currency})"
             
         report = f"<blockquote><pre>{header_title}\n"
-        report += f"=== TRANSACTION REPORT ===\n\n"
+        report += f"===== TRANSACTION REPORT =====\n\n"
 
         # 🟢 Order (Package) အားလုံးကို ဘေလ်တစ်ခုတည်းထဲသို့ စုထည့်ခြင်း
         for res in line_results:
@@ -1125,7 +1129,7 @@ async def execute_buy_process(message, lines, regex_pattern, currency, packages_
 
         # 🟢 နောက်ဆုံးမှသာ Balance သုံးစွဲမှုနှင့် အချိန်ကို တွက်ချက်ပြသခြင်း
         report += f"DATE         : {date_str}\n"
-        report += f"==== {safe_username} ====\n"
+        report += f"===== {user_link} =====\n"
         report += f"INITIAL      : ${initial_bal_for_receipt:,.2f}\n"
         report += f"FINAL        : ${new_v_bal:,.2f}\n\n"
         report += f"SUCCESS {grand_success_count} / FAIL {grand_fail_count}\n"

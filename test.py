@@ -17,10 +17,13 @@ from playwright.async_api import async_playwright
 from curl_cffi.requests import AsyncSession
 
 # Pyrogram / Pyrofork Imports
-from pyrogram import Client, filters, enums, idle
+from pyrogram import Client, filters, enums, idle, StopPropagation
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import StopPropagation
-from pyrogram import enums
+
+try:
+    from pyrogram.types import CopyTextButton
+except ImportError:
+    CopyTextButton = None
 
 import database as db
 

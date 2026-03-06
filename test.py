@@ -66,23 +66,23 @@ GLOBAL_CSRF = {'mlbb_br': None, 'mlbb_ph': None, 'mcc_br': None, 'mcc_ph': None}
 # ==========================================
 # 🚨 1. GLOBAL MIDDLEWARE (MAINTENANCE & SCAM ALERT)
 # ==========================================
-@app.on_message(group=-1) # 🌟 filters.all ကို ဖြုတ်လိုက်ပါသည်
+@app.on_message(group=-1)
 async def global_middleware(client, message):
     if getattr(message, "text", None) is None or getattr(message, "from_user", None) is None:
         return
 
     text_lower = message.text.lower()
     
-    # Maintenance Check
+    # 1. Maintenance Check
     global IS_MAINTENANCE
     if IS_MAINTENANCE:
         if message.from_user.id != OWNER_ID:
             await message.reply_text("⚠️ ပြုပြင်ဆောင်ရွက်နေပါသဖြင့် Topup ဘော့အား ခနရပ်ထားပါသည်။")
-            raise StopPropagation  # 🌟 ဤနေရာတွင် ပြင်ဆင်ထားပါသည်
+            raise StopPropagation
             
-    # Scam Alert Check
-    if text_lower.startswith(".scam ") or text_lower.startswith(".unscam ") or text_lower.startswith("/scam") or text_lower.startswith("/unscam"):
-        return
+    # 2. Scam Alert Check (Command များကို ကျော်ခိုင်းမည်)
+    if text_lower.startswith((".", "/")):
+        return # 🌟 ဤနေရာသည် အရေးကြီးပါသည်။ Command ဖြစ်လျှင် Middleware မှ ဝင်မစစ်ဘဲ အောက်က Command Function များဆီ ပေးသွားပါမည်။
         
     for scam_id in GLOBAL_SCAMMERS:
         pattern = rf"\b{scam_id}\b"

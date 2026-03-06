@@ -1449,20 +1449,20 @@ async def handle_check_role(client, message):
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
     }
 
-    try:
+    try:  # 🌟 ဒီအပေါ်ဆုံးက Try block အတွက် အောက်ဆုံးမှာ Except ပြန်ပိတ်ပေးဖို့ လိုပါတယ်
         async with AsyncSession(impersonate="chrome120") as local_scraper:
             res = await local_scraper.get(url, params=params, headers=headers, timeout=15)
         
         try:
             data = res.json()
         except Exception:
-            return await loading_msg.edit_text(f"❌ API Error: Invalid Response.\n\n<code>{res.text[:100]}...</code>")
+            return await loading_msg.edit_text(f"❌ API Error: Invalid Response.\n\n<code>{res.text[:100]}...</code>", parse_mode=enums.ParseMode.HTML)
 
         user_data = data.get('data', {})
         ig_name = user_data.get('username', 'Unknown')
         
         if not ig_name or str(ig_name).strip() == "" or ig_name == 'Unknown':
-            return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect or not found.")
+            return await loading_msg.edit_text("❌ **Invalid Account:** Game ID or Zone ID is incorrect or not found.", parse_mode=enums.ParseMode.HTML)
             
         country_code = user_data.get('country', 'Unknown')
         country_map = {"MM": "Myanmar", "FR": "France", "MY": "Malaysia", "PH": "Philippines", "ID": "Indonesia", "BR": "Brazil", "SG": "Singapore", "KH": "Cambodia", "TH": "Thailand"}
@@ -1485,7 +1485,6 @@ async def handle_check_role(client, message):
         style_250 = "danger" if limit_250 else "success"
         style_500 = "danger" if limit_500 else "success"
 
-        # 🌟 Pofofork တွင် Button Color များကို ဖမ်းယူနိုင်ရန် Try-Except ခံထားပါသည်
         try:
             keyboard = InlineKeyboardMarkup([
                 [
@@ -1519,6 +1518,9 @@ async def handle_check_role(client, message):
         )
 
         await loading_msg.edit_text(final_report, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
+        
+    except Exception as e: # 🌟 ဒီစာကြောင်းလေး ပြုတ်ကျန်ခဲ့တာပါ
+        await loading_msg.edit_text(f"❌ System Error: {str(e)}", parse_mode=enums.ParseMode.HTML)
 
 
 @app.on_message((filters.command(["checkcus", "cus"], prefixes=["/", "."]) | filters.regex(r"(?i)^\.(?:checkcus|cus)(?:$|\s+)")))

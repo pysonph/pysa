@@ -17,7 +17,7 @@ from playwright.async_api import async_playwright
 from curl_cffi.requests import AsyncSession
 
 # Pyrogram / Pyrofork Imports
-from pyrogram import Client, filters, enums, idle
+from pyrogram import Client, filters, enums, idle, StopPropagation
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 try:
@@ -78,7 +78,7 @@ async def global_middleware(client, message):
     if IS_MAINTENANCE:
         if message.from_user.id != OWNER_ID:
             await message.reply_text("⚠️ ပြုပြင်ဆောင်ရွက်နေပါသဖြင့် Topup ဘော့အား ခနရပ်ထားပါသည်။")
-            message.stop_propagation()  # 🌟 raise အစား .stop_propagation() ကို ပြောင်းသုံးထားပါသည်
+            raise StopPropagation  # 🌟 ဤနေရာကို ပြင်ပါ
             
     # Scam Alert Check
     if text_lower.startswith(".scam ") or text_lower.startswith(".unscam ") or text_lower.startswith("/scam") or text_lower.startswith("/unscam"):
@@ -88,7 +88,7 @@ async def global_middleware(client, message):
         pattern = rf"\b{scam_id}\b"
         if re.search(pattern, message.text):
             await message.reply_text("Scamer game id , Scamer Alert!", parse_mode=enums.ParseMode.HTML)
-            message.stop_propagation()  # 🌟 raise အစား .stop_propagation() ကို ပြောင်းသုံးထားပါသည်
+            raise StopPropagation  # 🌟 ဤနေရာကို ပြင်ပါ
 
 
 async def get_main_scraper():

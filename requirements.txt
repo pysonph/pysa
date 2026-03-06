@@ -1,6 +1,7 @@
-aiogram
-beautifulsoup4
+pyrofork
+tgcrypto
 python-dotenv
 playwright
 curl_cffi
+beautifulsoup4
 motor

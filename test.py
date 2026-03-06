@@ -17,7 +17,7 @@ from curl_cffi.requests import AsyncSession
 # Pyrogram (Pyrofork) Imports
 from pyrogram import Client, filters, enums, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import StopPropagation
+from pyrogram import Client, filters, enums, idle, StopPropagation
 
 import database as db
 

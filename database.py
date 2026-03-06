@@ -37,8 +37,9 @@ async def setup_indexes():
     """ဒေတာများလာသည့်အခါ ရှာဖွေမှုမြန်ဆန်စေရန် Index များ တည်ဆောက်မည်"""
     try:
         await resellers_col.create_index("tg_id", unique=True)
-        # Order History ဆွဲထုတ်ရာတွင် မြန်ဆန်စေရန် tg_id နှင့် timestamp ကို ပေါင်း၍ Index လုပ်ထားသည်
         await orders_col.create_index([("tg_id", 1), ("timestamp", -1)])
+        # Scammer ID များကို ရှာဖွေရာတွင် မြန်ဆန်စေရန်
+        await db.scammers.create_index("game_id", unique=True)
     except Exception as e:
         print(f"⚠️ Index ဖန်တီးရာတွင် အမှားရှိပါသည်: {e}")
 
@@ -83,18 +84,20 @@ async def get_all_resellers():
     return await cursor.to_list(length=None)
 
 async def add_reseller(tg_id, username):
-    """Reseller အသစ်ထည့်မည်"""
+    """Reseller အသစ်ထည့်မည် (Data ထပ်နေခြင်းမှ ကာကွယ်ထားသည်)"""
     tg_id_str = str(tg_id)
-    existing_user = await resellers_col.find_one({"tg_id": tg_id_str})
-    if not existing_user:
-        await resellers_col.insert_one({
+    result = await resellers_col.update_one(
+        {"tg_id": tg_id_str},
+        {"$setOnInsert": {
             "tg_id": tg_id_str,
             "username": username,
             "br_balance": 0.0,
             "ph_balance": 0.0
-        })
-        return True
-    return False
+        }},
+        upsert=True
+    )
+    # upserted_id ပါဝင်လာပါက အသစ်ထည့်လိုက်ခြင်းဖြစ်သည်
+    return result.upserted_id is not None
 
 async def remove_reseller(tg_id):
     """Reseller အား စာရင်းမှ ဖျက်မည်"""
@@ -229,4 +232,3 @@ async def remove_scammer(game_id: str):
 async def get_all_scammers():
     cursor = db.scammers.find({})
     return [doc["game_id"] async for doc in cursor]
-

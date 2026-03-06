@@ -1,4 +1,5 @@
 pyrofork
+aiohttp
 tgcrypto
 python-dotenv
 playwright

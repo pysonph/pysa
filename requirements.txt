@@ -2,7 +2,8 @@ aiogram
 aiohttp
 tgcrypto
 python-dotenv
-playwright
+#playwright
+DrissionPage
 curl_cffi
 beautifulsoup4
 motor

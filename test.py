@@ -66,9 +66,9 @@ GLOBAL_CSRF = {'mlbb_br': None, 'mlbb_ph': None, 'mcc_br': None, 'mcc_ph': None}
 # ==========================================
 # 🚨 1. GLOBAL MIDDLEWARE (MAINTENANCE & SCAM ALERT)
 # ==========================================
-@app.on_message(filters.all, group=-1)
+@app.on_message(group=-1) # 🌟 filters.all ကို ဖြုတ်လိုက်ပါသည်
 async def global_middleware(client, message):
-    if not message.text or not message.from_user:
+    if getattr(message, "text", None) is None or getattr(message, "from_user", None) is None:
         return
 
     text_lower = message.text.lower()
@@ -78,7 +78,7 @@ async def global_middleware(client, message):
     if IS_MAINTENANCE:
         if message.from_user.id != OWNER_ID:
             await message.reply_text("⚠️ ပြုပြင်ဆောင်ရွက်နေပါသဖြင့် Topup ဘော့အား ခနရပ်ထားပါသည်။")
-            raise StopPropagation  # 🌟 ဤနေရာကို ပြင်ပါ
+            raise StopPropagation  # 🌟 ဤနေရာတွင် ပြင်ဆင်ထားပါသည်
             
     # Scam Alert Check
     if text_lower.startswith(".scam ") or text_lower.startswith(".unscam ") or text_lower.startswith("/scam") or text_lower.startswith("/unscam"):
@@ -88,7 +88,7 @@ async def global_middleware(client, message):
         pattern = rf"\b{scam_id}\b"
         if re.search(pattern, message.text):
             await message.reply_text("Scamer game id , Scamer Alert!", parse_mode=enums.ParseMode.HTML)
-            raise StopPropagation  # 🌟 ဤနေရာကို ပြင်ပါ
+            raise StopPropagation
 
 
 async def get_main_scraper():
@@ -126,7 +126,7 @@ async def auto_login_and_get_cookie():
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
-                    headless=False, 
+                    headless=True,  # 🌟 Hosting တွင် Run ရန် True ပြောင်းပေးပါ
                     args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
                 )
                 context = await browser.new_context(
